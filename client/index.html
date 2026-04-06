@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Invoice Extractor</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <p class="eyebrow">Local MVP</p>
+      <h1>Upload invoice PDFs, inspect the extracted fields, and export CSV.</h1>
+      <p class="lede">
+        This app accepts one or many PDF invoices, extracts invoice number, date, and amount,
+        previews the rows, and lets you download <code>invoices.csv</code>.
+      </p>
+    </section>
+
+    <section class="panel">
+      <form id="uploadForm" class="upload-form">
+        <input id="fileInput" name="invoices" type="file" accept=".pdf,application/pdf" multiple hidden>
+
+        <label for="fileInput" id="dropZone" class="drop-zone">
+          <span class="drop-kicker">Drop files here</span>
+          <strong>Choose one or more PDF invoices</strong>
+          <span class="drop-note">Drag and drop or use the file picker</span>
+        </label>
+
+        <div id="selectedFiles" class="selected-files"></div>
+
+        <div class="actions">
+          <button id="submitButton" type="submit" class="primary" disabled>Extract Invoice Data</button>
+          <button id="clearButton" type="button" class="secondary" disabled>Clear</button>
+          <button id="downloadButton" type="button" class="secondary" disabled>Download CSV</button>
+        </div>
+      </form>
+
+      <div id="status" class="status hidden" aria-live="polite"></div>
+
+      <section id="resultsSection" class="results hidden">
+        <div class="results-header">
+          <div>
+            <h2>Extracted Results</h2>
+            <p>Preview the parsed rows before exporting.</p>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>File</th>
+                <th>Invoice Number</th>
+                <th>Date</th>
+                <th>Amount</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+
+        <div class="json-preview">
+          <h3>JSON Response</h3>
+          <pre id="jsonOutput"></pre>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>

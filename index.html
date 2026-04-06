@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice Extractor - Convert PDFs to CSV</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="header">
+        <h1 class="title">Convert Invoice PDFs to Excel in Seconds</h1>
+        <p class="description">Upload one or multiple invoice PDFs and download a clean CSV file instantly.</p>
+    </header>
+    
+    <main class="main">
+        <div class="upload-card">
+            <div class="card-header">
+                <h2>Upload Invoice PDFs</h2>
+                <p>Drag and drop or click to select files</p>
+            </div>
+            
+            <form id="uploadForm" enctype="multipart/form-data" class="upload-form">
+                <div class="file-input-wrapper">
+                    <input type="file" id="fileInput" name="file" accept=".pdf" multiple required>
+                    <label for="fileInput" class="file-label" id="dropZone">
+                        <span class="upload-icon">📁</span>
+                        <span class="upload-text">Choose PDF Files</span>
+                        <span class="upload-subtext">or drag & drop PDFs here</span>
+                    </label>
+                    <div id="fileList" class="file-list"></div>
+                </div>
+
+                <div class="samples">
+                    <button type="button" id="generateSamplesBtn" class="secondary-btn">
+                        Generate Sample Invoices
+                    </button>
+                    <div id="samplesLinks" class="samples-links hidden"></div>
+                </div>
+                
+                <div class="actions">
+                    <button type="button" id="submitBtn" disabled class="submit-btn">
+                        <span class="btn-text">Extract Invoice Data</span>
+                        <span class="btn-arrow">→</span>
+                    </button>
+                    <button type="button" id="clearBtn" class="secondary-btn" disabled>
+                        Clear
+                    </button>
+                </div>
+            </form>
+            
+            <div id="loading" class="loading-state hidden">
+                <div class="spinner"></div>
+                <p>Processing invoices...</p>
+            </div>
+            
+            <div id="message" class="message hidden"></div>
+
+            <div id="preview" class="preview hidden">
+                <div class="preview-header">
+                    <h3>Preview</h3>
+                    <p>Quick sanity check before you copy into Excel.</p>
+                </div>
+                <div class="preview-table-wrapper">
+                    <table class="preview-table">
+                        <thead>
+                            <tr>
+                                <th>invoice_number</th>
+                                <th>date</th>
+                                <th>vendor</th>
+                                <th>total</th>
+                            </tr>
+                        </thead>
+                        <tbody id="previewBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <script src="script.js"></script>
+</body>
+</html>

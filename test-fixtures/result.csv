@@ -1,0 +1,6 @@
+invoice_number,date,vendor,total
+"INV-2024-001","04/06/2026","ACME Consulting LLC","1250.00"
+"ABC123","2026-04-06","Blue Ocean Studio Inc","1100.00"
+"12345","4/6/2026","Northwind Traders LLC","1000.00"
+"CONT-7788","04/06/2026","Contoso Company","2345.67"
+"Z-9000","04/06/2026","","99.99"

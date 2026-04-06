@@ -1,0 +1,19 @@
+{
+  "name": "invoice-extractor",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Invoice Extractor full-stack MVP",
+  "main": "server/app.js",
+  "scripts": {
+    "start": "node server/app.js",
+    "dev": "node server/app.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "json2csv": "^6.0.0-alpha.2",
+    "multer": "^2.0.2",
+    "pdf-parse": "^2.4.5"
+  }
+}

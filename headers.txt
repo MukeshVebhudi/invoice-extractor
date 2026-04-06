@@ -1,0 +1,12 @@
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Access-Control-Allow-Origin: *
+X-Extraction-Error-Count: 0
+Content-Type: text/csv; charset=utf-8
+Content-Disposition: attachment; filename="invoices.csv"
+Content-Length: 89
+ETag: W/"59-dgCHY1MMkAZkdxi8OU7KXDoJmHs"
+Date: Mon, 06 Apr 2026 10:52:42 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
