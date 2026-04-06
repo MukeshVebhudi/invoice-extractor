@@ -2,6 +2,7 @@ const form = document.getElementById('uploadForm');
 const fileInput = document.getElementById('fileInput');
 const dropZone = document.getElementById('dropZone');
 const selectedFiles = document.getElementById('selectedFiles');
+const loadingIndicator = document.getElementById('loadingIndicator');
 const statusBox = document.getElementById('status');
 const resultsSection = document.getElementById('resultsSection');
 const resultsBody = document.getElementById('resultsBody');
@@ -61,12 +62,15 @@ form.addEventListener('submit', async (event) => {
       formData.append('invoices', file);
     }
 
-    const response = await fetch('/upload', {
+    const response = await fetch('/api/upload', {
       method: 'POST',
       body: formData,
     });
 
-    const payload = await response.json();
+    const payload = await response.json().catch(() => ({
+      success: false,
+      error: 'Server returned an invalid response.',
+    }));
 
     if (!response.ok || !payload.success) {
       throw new Error(payload.error || 'Upload failed.');
@@ -76,7 +80,9 @@ form.addEventListener('submit', async (event) => {
     renderResults(payload.data || []);
     jsonOutput.textContent = JSON.stringify(payload, null, 2);
     resultsSection.classList.remove('hidden');
-    updateStatus(`Processed ${payload.count} invoice file(s).`, 'success');
+    const statusType =
+      payload.errorCount > 0 ? 'error' : payload.partialCount > 0 ? 'warning' : 'success';
+    updateStatus(payload.message || `Processed ${payload.count} invoice file(s).`, statusType);
   } catch (error) {
     latestCsv = '';
     updateStatus(error.message || 'Something went wrong.', 'error');
@@ -132,6 +138,10 @@ function renderResults(rows) {
 
   rows.forEach((row) => {
     const tr = document.createElement('tr');
+    if (row.status && row.status !== 'ok') {
+      tr.classList.add('needs-review');
+    }
+
     [
       row.fileName,
       row.invoiceNumber,
@@ -165,6 +175,7 @@ function updateButtons() {
 }
 
 function toggleBusy(isBusy) {
+  loadingIndicator.classList.toggle('hidden', !isBusy);
   submitButton.disabled = isBusy || !fileInput.files.length;
   clearButton.disabled = isBusy;
   downloadButton.disabled = isBusy || !latestCsv;

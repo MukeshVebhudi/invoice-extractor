@@ -7,6 +7,8 @@ const {
   extractInvoiceDataFromBuffer,
   extractInvoiceDataFromText,
   createCsvFromInvoices,
+  normalizeAmount,
+  normalizeDate,
 } = require('../services/invoiceExtractor');
 
 test('extractInvoiceDataFromText parses common invoice fields', () => {
@@ -21,8 +23,23 @@ test('extractInvoiceDataFromText parses common invoice fields', () => {
 
   assert.equal(result.vendor, 'ACME Consulting LLC');
   assert.equal(result.invoiceNumber, 'INV-1001');
-  assert.equal(result.date, '04/06/2026');
-  assert.equal(result.amount, '$1,234.56');
+  assert.equal(result.date, '2026-04-06');
+  assert.equal(result.amount, '$1234.56');
+});
+
+test('extractInvoiceDataFromText supports fallback patterns and normalization', () => {
+  const text = [
+    'Northwind Studio',
+    'Reference: INV-9088',
+    'Apr 6, 2026',
+    'Amount Payable: USD 2200.5',
+  ].join('\n');
+
+  const result = extractInvoiceDataFromText(text);
+
+  assert.equal(result.invoiceNumber, 'INV-9088');
+  assert.equal(result.date, '2026-04-06');
+  assert.equal(result.amount, '2200.50');
 });
 
 test('extractInvoiceDataFromBuffer parses the sample PDF', async () => {
@@ -30,8 +47,8 @@ test('extractInvoiceDataFromBuffer parses the sample PDF', async () => {
   const result = await extractInvoiceDataFromBuffer(fs.readFileSync(fixture));
 
   assert.equal(result.invoiceNumber, 'INV-1001');
-  assert.equal(result.date, '04/06/2026');
-  assert.equal(result.amount, '1,234.56');
+  assert.equal(result.date, '2026-04-06');
+  assert.equal(result.amount, '1234.56');
 });
 
 test('createCsvFromInvoices outputs CSV headers and rows', () => {
@@ -39,11 +56,20 @@ test('createCsvFromInvoices outputs CSV headers and rows', () => {
     {
       fileName: 'invoice.pdf',
       invoiceNumber: 'A-1',
-      date: '04/06/2026',
+      date: '2026-04-06',
       amount: '$100.00',
+      vendor: 'Acme',
+      status: 'ok',
     },
   ]);
 
-  assert.match(csv, /"fileName","invoiceNumber","date","amount"/);
-  assert.match(csv, /"invoice\.pdf","A-1","04\/06\/2026","\$100\.00"/);
+  assert.match(csv, /"file_name","invoice_number","date","amount","vendor","status"/);
+  assert.match(csv, /"invoice\.pdf","A-1","2026-04-06","\$100\.00","Acme","ok"/);
+});
+
+test('normalize helpers return consistent values', () => {
+  assert.equal(normalizeDate('04/06/2026'), '2026-04-06');
+  assert.equal(normalizeDate('06-04-2026'), '2026-04-06');
+  assert.equal(normalizeAmount('$1,234.5'), '$1234.50');
+  assert.equal(normalizeAmount('1,234.56'), '1234.56');
 });

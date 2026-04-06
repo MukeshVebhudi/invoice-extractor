@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "description": "Invoice Extractor full-stack MVP",
   "main": "server/app.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server/app.js",
     "dev": "node server/app.js",

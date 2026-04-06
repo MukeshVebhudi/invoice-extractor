@@ -9,22 +9,28 @@
 <body>
   <main class="page">
     <section class="hero">
-      <p class="eyebrow">Local MVP</p>
-      <h1>Upload invoice PDFs, inspect the extracted fields, and export CSV.</h1>
+      <p class="eyebrow">Invoice Extractor</p>
+      <h1>Upload invoice PDFs and download a clean CSV.</h1>
       <p class="lede">
-        This app accepts one or many PDF invoices, extracts invoice number, date, and amount,
-        previews the rows, and lets you download <code>invoices.csv</code>.
+        Add one or more invoice files, review the extracted rows, and export the result in an Excel-friendly format.
       </p>
     </section>
 
     <section class="panel">
+      <div class="panel-top">
+        <div>
+          <h2>Upload Invoice PDFs</h2>
+        </div>
+        <p class="section-copy">Drag and drop files or choose them from your computer.</p>
+      </div>
+
       <form id="uploadForm" class="upload-form">
         <input id="fileInput" name="invoices" type="file" accept=".pdf,application/pdf" multiple hidden>
 
         <label for="fileInput" id="dropZone" class="drop-zone">
-          <span class="drop-kicker">Drop files here</span>
-          <strong>Choose one or more PDF invoices</strong>
-          <span class="drop-note">Drag and drop or use the file picker</span>
+          <span class="drop-kicker">Drag files into the tray</span>
+          <strong>Select one or more invoice PDFs</strong>
+          <span class="drop-note">or click here to browse from your machine</span>
         </label>
 
         <div id="selectedFiles" class="selected-files"></div>
@@ -36,33 +42,39 @@
         </div>
       </form>
 
+      <div id="loadingIndicator" class="loading hidden" aria-live="polite">
+        <span class="loading-dot"></span>
+        <span>Processing invoices...</span>
+      </div>
+
       <div id="status" class="status hidden" aria-live="polite"></div>
 
       <section id="resultsSection" class="results hidden">
-        <div class="results-header">
-          <div>
-            <h2>Extracted Results</h2>
-            <p>Preview the parsed rows before exporting.</p>
+        <div class="results-grid">
+          <div class="results-header">
+            <div>
+              <h3>Extracted Results</h3>
+              <p>Review the values before downloading the CSV.</p>
+            </div>
           </div>
-        </div>
 
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>File</th>
-                <th>Invoice Number</th>
-                <th>Date</th>
-                <th>Amount</th>
-              </tr>
-            </thead>
-            <tbody id="resultsBody"></tbody>
-          </table>
-        </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Invoice Number</th>
+                  <th>Date</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody id="resultsBody"></tbody>
+            </table>
+          </div>
 
-        <div class="json-preview">
-          <h3>JSON Response</h3>
-          <pre id="jsonOutput"></pre>
+          <div class="json-preview hidden">
+            <pre id="jsonOutput"></pre>
+          </div>
         </div>
       </section>
     </section>
