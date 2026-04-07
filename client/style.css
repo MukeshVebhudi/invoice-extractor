@@ -166,12 +166,36 @@ body {
 }
 
 .file-pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 14px 16px;
   border-radius: 18px;
   border: 1px solid rgba(99, 78, 61, 0.16);
   background: rgba(255, 252, 247, 0.78);
   font-size: 0.95rem;
   box-shadow: 0 8px 20px rgba(69, 44, 24, 0.05);
+}
+
+.file-pill-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-remove {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(99, 78, 61, 0.18);
+  background: #fff7f2;
+  color: var(--accent-dark);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .actions {
@@ -285,6 +309,53 @@ button:disabled {
   gap: 18px;
 }
 
+.results-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.filter-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.filter-button {
+  padding: 10px 14px;
+  border: 1px solid rgba(99, 78, 61, 0.18);
+  background: rgba(255, 252, 247, 0.82);
+  color: var(--ink);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.filter-button.is-active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  color: #fff9f4;
+}
+
+.sort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.sort-control select {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(99, 78, 61, 0.18);
+  background: rgba(255, 252, 247, 0.82);
+  color: var(--ink);
+  font: inherit;
+}
+
 .table-wrap {
   border: 1px solid rgba(99, 78, 61, 0.15);
   border-radius: 24px;
@@ -329,6 +400,34 @@ tbody tr.needs-review td {
   font-weight: 600;
 }
 
+.editable-input {
+  width: 100%;
+  min-width: 90px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(99, 78, 61, 0.18);
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--ink);
+  font: inherit;
+}
+
+.editable-input:focus {
+  outline: 2px solid rgba(127, 63, 39, 0.18);
+  border-color: var(--accent);
+}
+
+.confidence-high {
+  background: rgba(238, 248, 243, 0.92);
+}
+
+.confidence-medium {
+  background: rgba(255, 247, 232, 0.92);
+}
+
+.confidence-low {
+  background: rgba(255, 239, 233, 0.92);
+}
+
 .review-tag {
   display: inline-flex;
   align-items: center;
@@ -348,6 +447,29 @@ tbody tr.needs-review td {
 .review-tag.warn {
   background: #fff3e3;
   color: #8a5413;
+}
+
+.issues-cell.muted {
+  color: var(--muted);
+}
+
+.issues-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.issue-chip {
+  display: inline-flex;
+  max-width: 180px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #fff2e4;
+  color: #8a5413;
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 pre {
@@ -378,6 +500,11 @@ pre {
 
 @media (max-width: 920px) {
   .panel-top {
+    flex-direction: column;
+    align-items: start;
+  }
+
+  .results-toolbar {
     flex-direction: column;
     align-items: start;
   }

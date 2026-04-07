@@ -97,6 +97,9 @@ function computeConfidence(extraction, meta) {
   if (meta.usedOCR) score -= 5;
   if (meta.usedAI) score -= 10;
   if (extraction.issues.length > 0) score -= Math.min(15, extraction.issues.length * 4);
+  if (/^(invoice|document|the)$/i.test(extraction.invoiceNumber || '')) score -= 35;
+  if (/^(?:1(?:\.00)?|0(?:\.00)?)$/.test(extraction.amount || '')) score -= 25;
+  if (/^vendor[:#-]/i.test(extraction.vendor || '')) score -= 10;
 
   return Math.max(0, Math.min(99, score));
 }

@@ -10,33 +10,37 @@ const resultsSection = document.getElementById('resultsSection');
 const resultsBody = document.getElementById('resultsBody');
 const jsonOutput = document.getElementById('jsonOutput');
 const submitButton = document.getElementById('submitButton');
+const sampleButton = document.getElementById('sampleButton');
 const clearButton = document.getElementById('clearButton');
 const downloadButton = document.getElementById('downloadButton');
+const sortSelect = document.getElementById('sortSelect');
+const filterButtons = Array.from(document.querySelectorAll('.filter-button'));
 
 let latestCsv = '';
 let progressTimer = null;
+let selectedFileState = [];
+let extractedRows = [];
+let activeFilter = 'all';
+let activeSort = 'original';
 
 fileInput.addEventListener('change', () => {
-  syncSelectedFiles(fileInput.files);
+  syncSelectedFiles(Array.from(fileInput.files));
 });
 
 clearButton.addEventListener('click', () => {
-  fileInput.value = '';
-  latestCsv = '';
-  selectedFiles.innerHTML = '';
-  resultsBody.innerHTML = '';
-  jsonOutput.textContent = '';
-  resultsSection.classList.add('hidden');
-  stopFakeProgress();
-  updateStatus('', '');
-  updateButtons();
+  resetUiState();
+});
+
+sampleButton.addEventListener('click', () => {
+  loadSampleRows();
 });
 
 downloadButton.addEventListener('click', () => {
-  if (!latestCsv) {
+  if (!extractedRows.length) {
     return;
   }
 
+  latestCsv = buildCsvFromRows(extractedRows);
   const blob = new Blob([latestCsv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -48,24 +52,36 @@ downloadButton.addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
+sortSelect.addEventListener('change', () => {
+  activeSort = sortSelect.value;
+  renderResults();
+});
+
+filterButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    activeFilter = button.dataset.filter;
+    filterButtons.forEach((item) => item.classList.toggle('is-active', item === button));
+    renderResults();
+  });
+});
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
 
-  if (!fileInput.files.length) {
+  if (!selectedFileState.length) {
     updateStatus('Select at least one PDF file.', 'error');
     return;
   }
 
-  updateStatus('Processing invoices...', '');
+  updateStatus(`Processing 0 of ${selectedFileState.length} files...`, '');
   toggleBusy(true);
   startFakeProgress();
 
   try {
     const formData = new FormData();
-
-    for (const file of fileInput.files) {
+    selectedFileState.forEach((file) => {
       formData.append('invoices', file);
-    }
+    });
 
     const response = await fetch('/api/upload', {
       method: 'POST',
@@ -81,8 +97,9 @@ form.addEventListener('submit', async (event) => {
       throw new Error(payload.error || 'Upload failed.');
     }
 
-    latestCsv = payload.csv || '';
-    renderResults(payload.data || []);
+    extractedRows = (payload.data || []).map((row, index) => toEditableRow(row, index));
+    latestCsv = buildCsvFromRows(extractedRows);
+    renderResults();
     jsonOutput.textContent = JSON.stringify(payload, null, 2);
     resultsSection.classList.remove('hidden');
     const statusType =
@@ -90,6 +107,8 @@ form.addEventListener('submit', async (event) => {
     updateStatus(payload.message || `Processed ${payload.count} invoice file(s).`, statusType);
   } catch (error) {
     latestCsv = '';
+    extractedRows = [];
+    renderResults();
     updateStatus(error.message || 'Something went wrong.', 'error');
   } finally {
     stopFakeProgress(true);
@@ -114,24 +133,32 @@ form.addEventListener('submit', async (event) => {
 
 dropZone.addEventListener('drop', (event) => {
   const files = Array.from(event.dataTransfer.files || []).filter(isPdfFile);
-  const transfer = new DataTransfer();
-
-  files.forEach((file) => transfer.items.add(file));
-  fileInput.files = transfer.files;
-  syncSelectedFiles(fileInput.files);
+  syncSelectedFiles(files);
 });
 
 function syncSelectedFiles(files) {
+  selectedFileState = Array.from(files || []).filter(isPdfFile);
+  setInputFiles(selectedFileState);
   selectedFiles.innerHTML = '';
 
-  Array.from(files).forEach((file) => {
+  selectedFileState.forEach((file, index) => {
     const item = document.createElement('div');
     item.className = 'file-pill';
-    item.textContent = file.name;
+    item.innerHTML = `
+      <span class="file-pill-name"></span>
+      <button type="button" class="file-remove" data-index="${index}" aria-label="Remove ${escapeHtml(file.name)}">Remove</button>
+    `;
+    item.querySelector('.file-pill-name').textContent = file.name;
     selectedFiles.appendChild(item);
   });
 
-  if (!files.length) {
+  selectedFiles.querySelectorAll('.file-remove').forEach((button) => {
+    button.addEventListener('click', () => {
+      removeSelectedFile(Number(button.dataset.index));
+    });
+  });
+
+  if (!selectedFileState.length && !extractedRows.length) {
     updateStatus('', '');
     resultsSection.classList.add('hidden');
   }
@@ -139,23 +166,151 @@ function syncSelectedFiles(files) {
   updateButtons();
 }
 
-function renderResults(rows) {
+function renderResults() {
   resultsBody.innerHTML = '';
 
-  rows.forEach((row) => {
+  const visibleRows = sortRows(filterRows(extractedRows));
+
+  visibleRows.forEach((row) => {
     const tr = document.createElement('tr');
     if (row.needsReview || row.status === 'error') {
       tr.classList.add('needs-review');
     }
 
-    appendCell(tr, row.fileName);
-    appendCell(tr, row.invoiceNumber);
-    appendCell(tr, row.date);
-    appendCell(tr, row.amount);
-    appendCell(tr, `${row.confidence ?? 0}%`, 'confidence-cell');
+    appendStaticCell(tr, row.fileName);
+    appendEditableCell(tr, row, 'invoiceNumber', row.fieldConfidence.invoiceNumberConfidence, 'Invoice number');
+    appendEditableCell(tr, row, 'date', row.fieldConfidence.dateConfidence, 'Date');
+    appendEditableCell(tr, row, 'amount', row.fieldConfidence.amountConfidence, 'Amount');
+    appendEditableCell(tr, row, 'vendor', row.fieldConfidence.vendorConfidence, 'Vendor');
+    appendConfidenceCell(tr, row);
+    appendIssuesCell(tr, row);
     appendReviewCell(tr, row);
     resultsBody.appendChild(tr);
   });
+
+  resultsSection.classList.toggle('hidden', extractedRows.length === 0);
+}
+
+function filterRows(rows) {
+  if (activeFilter === 'needs_review') {
+    return rows.filter((row) => row.needsReview || row.status === 'error');
+  }
+
+  if (activeFilter === 'high_confidence') {
+    return rows.filter((row) => !row.needsReview && Number(row.confidence) >= 85);
+  }
+
+  return rows;
+}
+
+function sortRows(rows) {
+  const sorted = [...rows];
+
+  switch (activeSort) {
+    case 'confidence_desc':
+      sorted.sort((a, b) => Number(b.confidence) - Number(a.confidence));
+      break;
+    case 'amount_desc':
+      sorted.sort((a, b) => numericAmount(b.amount) - numericAmount(a.amount));
+      break;
+    case 'date_desc':
+      sorted.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+      break;
+    default:
+      sorted.sort((a, b) => a.originalIndex - b.originalIndex);
+      break;
+  }
+
+  return sorted;
+}
+
+function appendStaticCell(tr, value) {
+  const td = document.createElement('td');
+  td.textContent = value || '';
+  tr.appendChild(td);
+}
+
+function appendEditableCell(tr, row, key, confidence, label) {
+  const td = document.createElement('td');
+  const input = document.createElement('input');
+  input.className = `editable-input confidence-${confidenceLevel(confidence)}`;
+  input.value = row[key] || '';
+  input.setAttribute('aria-label', `${label} for ${row.fileName}`);
+  input.title = `${label} confidence: ${confidence}%`;
+  input.addEventListener('input', () => {
+    row[key] = input.value.trim();
+    row.wasEdited = true;
+    row.status = row.needsReview ? 'needs_review' : 'ok';
+    latestCsv = buildCsvFromRows(extractedRows);
+  });
+  td.appendChild(input);
+  tr.appendChild(td);
+}
+
+function appendConfidenceCell(tr, row) {
+  const td = document.createElement('td');
+  td.className = 'confidence-cell';
+  td.textContent = `${row.confidence}%`;
+  td.title = [
+    `Invoice #: ${row.fieldConfidence.invoiceNumberConfidence}%`,
+    `Date: ${row.fieldConfidence.dateConfidence}%`,
+    `Amount: ${row.fieldConfidence.amountConfidence}%`,
+    `Vendor: ${row.fieldConfidence.vendorConfidence}%`,
+  ].join('\n');
+  tr.appendChild(td);
+}
+
+function appendIssuesCell(tr, row) {
+  const td = document.createElement('td');
+  if (!row.issues.length) {
+    td.textContent = 'None';
+    td.className = 'issues-cell muted';
+    tr.appendChild(td);
+    return;
+  }
+
+  const issues = document.createElement('div');
+  issues.className = 'issues-list';
+  row.issues.forEach((issue) => {
+    const chip = document.createElement('span');
+    chip.className = 'issue-chip';
+    chip.textContent = issue;
+    chip.title = issue;
+    issues.appendChild(chip);
+  });
+  td.appendChild(issues);
+  tr.appendChild(td);
+}
+
+function appendReviewCell(tr, row) {
+  const td = document.createElement('td');
+  const tag = document.createElement('span');
+  const needsReview = row.needsReview || row.status === 'error';
+  tag.className = needsReview ? 'review-tag warn' : 'review-tag ok';
+  tag.textContent = needsReview ? 'Needs Review' : 'Ready';
+  td.appendChild(tag);
+  tr.appendChild(td);
+}
+
+function toEditableRow(row, index) {
+  return {
+    ...row,
+    originalIndex: index,
+    wasEdited: false,
+    fieldConfidence: {
+      invoiceNumberConfidence: inferFieldConfidence(row.invoiceNumber, row.issues, 'Invoice number'),
+      dateConfidence: inferFieldConfidence(row.date, row.issues, 'Invoice date'),
+      amountConfidence: inferFieldConfidence(row.amount, row.issues, 'Invoice amount'),
+      vendorConfidence: inferFieldConfidence(row.vendor, row.issues, 'Vendor'),
+    },
+  };
+}
+
+function inferFieldConfidence(value, issues, label) {
+  if (!value) return 25;
+  const hasIssue = (issues || []).some((issue) => issue.toLowerCase().includes(label.toLowerCase()));
+  if (hasIssue) return 45;
+  return 90;
 }
 
 function updateStatus(message, type) {
@@ -170,39 +325,25 @@ function updateStatus(message, type) {
 }
 
 function updateButtons() {
-  const hasFiles = fileInput.files.length > 0;
+  const hasFiles = selectedFileState.length > 0;
+  const hasRows = extractedRows.length > 0;
   submitButton.disabled = !hasFiles;
-  clearButton.disabled = !hasFiles;
-  downloadButton.disabled = !latestCsv;
+  clearButton.disabled = !hasFiles && !hasRows;
+  downloadButton.disabled = !hasRows;
 }
 
 function toggleBusy(isBusy) {
   loadingIndicator.classList.toggle('hidden', !isBusy);
-  submitButton.disabled = isBusy || !fileInput.files.length;
+  submitButton.disabled = isBusy || !selectedFileState.length;
+  sampleButton.disabled = isBusy;
   clearButton.disabled = isBusy;
-  downloadButton.disabled = isBusy || !latestCsv;
-}
-
-function appendCell(tr, value, className = '') {
-  const td = document.createElement('td');
-  td.textContent = value || '';
-  if (className) td.className = className;
-  tr.appendChild(td);
-}
-
-function appendReviewCell(tr, row) {
-  const td = document.createElement('td');
-  const tag = document.createElement('span');
-  const needsReview = row.needsReview || row.status === 'error';
-  tag.className = needsReview ? 'review-tag warn' : 'review-tag ok';
-  tag.textContent = needsReview ? 'Needs Review' : 'Ready';
-  td.appendChild(tag);
-  tr.appendChild(td);
+  downloadButton.disabled = isBusy || !extractedRows.length;
 }
 
 function startFakeProgress() {
   stopFakeProgress();
   let progress = 8;
+  const total = Math.max(1, selectedFileState.length);
 
   progressWrap.classList.remove('hidden');
   progressBar.style.width = `${progress}%`;
@@ -210,6 +351,8 @@ function startFakeProgress() {
   progressTimer = setInterval(() => {
     progress = Math.min(progress + Math.max(3, (92 - progress) * 0.14), 92);
     progressBar.style.width = `${progress}%`;
+    const processed = Math.max(1, Math.min(total, Math.round((progress / 100) * total)));
+    updateStatus(`Processing ${processed} of ${total} file(s)...`, '');
   }, 220);
 }
 
@@ -237,4 +380,129 @@ function isPdfFile(file) {
     file &&
     (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))
   );
+}
+
+function removeSelectedFile(index) {
+  if (!Number.isInteger(index)) return;
+  selectedFileState = selectedFileState.filter((_, currentIndex) => currentIndex !== index);
+  syncSelectedFiles(selectedFileState);
+}
+
+function setInputFiles(files) {
+  const transfer = new DataTransfer();
+  files.forEach((file) => transfer.items.add(file));
+  fileInput.files = transfer.files;
+}
+
+function buildCsvFromRows(rows) {
+  const headers = [
+    'file_name',
+    'invoice_number',
+    'date',
+    'amount',
+    'vendor',
+    'confidence',
+    'extraction_source',
+    'status',
+  ];
+
+  const lines = [headers.join(',')];
+
+  rows.forEach((row) => {
+    lines.push([
+      row.fileName,
+      row.invoiceNumber,
+      row.date,
+      row.amount,
+      row.vendor,
+      row.confidence,
+      row.extractionSource,
+      row.needsReview ? 'needs_review' : 'ok',
+    ].map(toCsvField).join(','));
+  });
+
+  return `${lines.join('\n')}\n`;
+}
+
+function toCsvField(value) {
+  const text = String(value ?? '');
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function numericAmount(value) {
+  return Number(String(value || '').replace(/[^\d.-]/g, '')) || 0;
+}
+
+function confidenceLevel(value) {
+  if (value >= 85) return 'high';
+  if (value >= 60) return 'medium';
+  return 'low';
+}
+
+function loadSampleRows() {
+  extractedRows = [
+    {
+      fileName: 'sample-us.pdf',
+      invoiceNumber: 'INV-1001',
+      date: '2026-04-01',
+      amount: '$120.50',
+      vendor: 'ABC Corp',
+      confidence: 96,
+      extractionSource: 'regex',
+      status: 'ok',
+      needsReview: false,
+      issues: [],
+    },
+    {
+      fileName: 'sample-eu.pdf',
+      invoiceNumber: '76326',
+      date: '2024-12-10',
+      amount: '€90937.98',
+      vendor: 'Veum, Wilkinson and Adams',
+      confidence: 81,
+      extractionSource: 'regex',
+      status: 'needs_review',
+      needsReview: true,
+      issues: ['Low-confidence extraction. Needs review.'],
+    },
+    {
+      fileName: 'sample-missing.pdf',
+      invoiceNumber: '',
+      date: '2026-04-07',
+      amount: '₹123456.78',
+      vendor: 'Sample Vendor',
+      confidence: 58,
+      extractionSource: 'regex+ai',
+      status: 'needs_review',
+      needsReview: true,
+      issues: ['Invoice number not found.', 'AI-assisted extraction used for missing values.'],
+    },
+  ].map((row, index) => toEditableRow(row, index));
+
+  latestCsv = buildCsvFromRows(extractedRows);
+  renderResults();
+  updateButtons();
+  updateStatus('Loaded sample invoice results.', 'success');
+}
+
+function resetUiState() {
+  fileInput.value = '';
+  latestCsv = '';
+  selectedFileState = [];
+  extractedRows = [];
+  selectedFiles.innerHTML = '';
+  resultsBody.innerHTML = '';
+  jsonOutput.textContent = '';
+  resultsSection.classList.add('hidden');
+  stopFakeProgress();
+  updateStatus('', '');
+  updateButtons();
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;');
 }

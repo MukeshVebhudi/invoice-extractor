@@ -37,6 +37,7 @@
 
         <div class="actions">
           <button id="submitButton" type="submit" class="primary" disabled>Extract Invoice Data</button>
+          <button id="sampleButton" type="button" class="secondary">Try with Sample Invoices</button>
           <button id="clearButton" type="button" class="secondary" disabled>Clear</button>
           <button id="downloadButton" type="button" class="secondary" disabled>Download CSV</button>
         </div>
@@ -60,6 +61,22 @@
               <h3>Extracted Results</h3>
               <p>Review the values before downloading the CSV.</p>
             </div>
+            <div class="results-toolbar">
+              <div class="filter-group" role="group" aria-label="Filter rows">
+                <button type="button" class="filter-button is-active" data-filter="all">All</button>
+                <button type="button" class="filter-button" data-filter="needs_review">Needs Review</button>
+                <button type="button" class="filter-button" data-filter="high_confidence">High Confidence</button>
+              </div>
+              <label class="sort-control">
+                <span>Sort</span>
+                <select id="sortSelect">
+                  <option value="original">Original order</option>
+                  <option value="confidence_desc">Confidence</option>
+                  <option value="amount_desc">Amount</option>
+                  <option value="date_desc">Date</option>
+                </select>
+              </label>
+            </div>
           </div>
 
           <div class="table-wrap">
@@ -70,7 +87,9 @@
                   <th>Invoice Number</th>
                   <th>Date</th>
                   <th>Amount</th>
+                  <th>Vendor</th>
                   <th>Confidence</th>
+                  <th>Issues</th>
                   <th>Review</th>
                 </tr>
               </thead>
