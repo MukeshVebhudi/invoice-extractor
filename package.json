@@ -14,10 +14,10 @@
   },
   "dependencies": {
     "cors": "^2.8.5",
+    "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "json2csv": "^6.0.0-alpha.2",
     "multer": "^2.0.2",
-    "pdf-parse": "^2.4.5",
-    "xlsx": "^0.18.5"
+    "pdf-parse": "^2.4.5"
   }
 }

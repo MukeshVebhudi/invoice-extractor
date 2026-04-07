@@ -1,4 +1,4 @@
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 
 const EXPORT_FIELDS = [
   ['file_name', 'fileName'],
@@ -11,24 +11,25 @@ const EXPORT_FIELDS = [
   ['status', 'status'],
 ];
 
-function createWorkbookBuffer(rows) {
-  const normalizedRows = rows.map((row) =>
-    Object.fromEntries(
-      EXPORT_FIELDS.map(([header, key]) => [header, row[key] ?? ''])
-    )
-  );
+async function createWorkbookBuffer(rows) {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Invoices');
 
-  const worksheet = XLSX.utils.json_to_sheet(normalizedRows, {
-    header: EXPORT_FIELDS.map(([header]) => header),
+  worksheet.columns = EXPORT_FIELDS.map(([header, key]) => ({
+    header,
+    key,
+    width: Math.max(header.length + 4, 16),
+  }));
+
+  rows.forEach((row) => {
+    worksheet.addRow(
+      Object.fromEntries(
+        EXPORT_FIELDS.map(([_, key]) => [key, row[key] ?? ''])
+      )
+    );
   });
-  const workbook = XLSX.utils.book_new();
 
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Invoices');
-
-  return XLSX.write(workbook, {
-    type: 'buffer',
-    bookType: 'xlsx',
-  });
+  return workbook.xlsx.writeBuffer();
 }
 
 module.exports = {

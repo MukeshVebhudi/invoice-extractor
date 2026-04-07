@@ -79,7 +79,7 @@ router.post('/upload', upload.array('invoices', 25), async (req, res, next) => {
   }
 });
 
-router.post('/export/xlsx', (req, res, next) => {
+router.post('/export/xlsx', async (req, res, next) => {
   try {
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
 
@@ -90,7 +90,7 @@ router.post('/export/xlsx', (req, res, next) => {
       });
     }
 
-    const workbook = createWorkbookBuffer(
+    const workbook = await createWorkbookBuffer(
       rows.map((row) => ({
         fileName: row.fileName || '',
         invoiceNumber: row.invoiceNumber || '',

@@ -91,8 +91,8 @@ test('createCsvFromInvoices outputs CSV headers and rows', () => {
   assert.match(csv, /"invoice\.pdf","A-1","2026-04-06","\$100\.00","Acme",91,"regex","ok"/);
 });
 
-test('createWorkbookBuffer outputs an xlsx file buffer', () => {
-  const workbook = createWorkbookBuffer([
+test('createWorkbookBuffer outputs an xlsx file buffer', async () => {
+  const workbook = await createWorkbookBuffer([
     {
       fileName: 'invoice.pdf',
       invoiceNumber: 'A-1',
