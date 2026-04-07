@@ -3,6 +3,8 @@ const fileInput = document.getElementById('fileInput');
 const dropZone = document.getElementById('dropZone');
 const selectedFiles = document.getElementById('selectedFiles');
 const loadingIndicator = document.getElementById('loadingIndicator');
+const progressWrap = document.getElementById('progressWrap');
+const progressBar = document.getElementById('progressBar');
 const statusBox = document.getElementById('status');
 const resultsSection = document.getElementById('resultsSection');
 const resultsBody = document.getElementById('resultsBody');
@@ -12,6 +14,7 @@ const clearButton = document.getElementById('clearButton');
 const downloadButton = document.getElementById('downloadButton');
 
 let latestCsv = '';
+let progressTimer = null;
 
 fileInput.addEventListener('change', () => {
   syncSelectedFiles(fileInput.files);
@@ -24,6 +27,7 @@ clearButton.addEventListener('click', () => {
   resultsBody.innerHTML = '';
   jsonOutput.textContent = '';
   resultsSection.classList.add('hidden');
+  stopFakeProgress();
   updateStatus('', '');
   updateButtons();
 });
@@ -54,6 +58,7 @@ form.addEventListener('submit', async (event) => {
 
   updateStatus('Processing invoices...', '');
   toggleBusy(true);
+  startFakeProgress();
 
   try {
     const formData = new FormData();
@@ -87,6 +92,7 @@ form.addEventListener('submit', async (event) => {
     latestCsv = '';
     updateStatus(error.message || 'Something went wrong.', 'error');
   } finally {
+    stopFakeProgress(true);
     toggleBusy(false);
     updateButtons();
   }
@@ -138,20 +144,16 @@ function renderResults(rows) {
 
   rows.forEach((row) => {
     const tr = document.createElement('tr');
-    if (row.status && row.status !== 'ok') {
+    if (row.needsReview || row.status === 'error') {
       tr.classList.add('needs-review');
     }
 
-    [
-      row.fileName,
-      row.invoiceNumber,
-      row.date,
-      row.amount,
-    ].forEach((value) => {
-      const td = document.createElement('td');
-      td.textContent = value || '';
-      tr.appendChild(td);
-    });
+    appendCell(tr, row.fileName);
+    appendCell(tr, row.invoiceNumber);
+    appendCell(tr, row.date);
+    appendCell(tr, row.amount);
+    appendCell(tr, `${row.confidence ?? 0}%`, 'confidence-cell');
+    appendReviewCell(tr, row);
     resultsBody.appendChild(tr);
   });
 }
@@ -179,6 +181,55 @@ function toggleBusy(isBusy) {
   submitButton.disabled = isBusy || !fileInput.files.length;
   clearButton.disabled = isBusy;
   downloadButton.disabled = isBusy || !latestCsv;
+}
+
+function appendCell(tr, value, className = '') {
+  const td = document.createElement('td');
+  td.textContent = value || '';
+  if (className) td.className = className;
+  tr.appendChild(td);
+}
+
+function appendReviewCell(tr, row) {
+  const td = document.createElement('td');
+  const tag = document.createElement('span');
+  const needsReview = row.needsReview || row.status === 'error';
+  tag.className = needsReview ? 'review-tag warn' : 'review-tag ok';
+  tag.textContent = needsReview ? 'Needs Review' : 'Ready';
+  td.appendChild(tag);
+  tr.appendChild(td);
+}
+
+function startFakeProgress() {
+  stopFakeProgress();
+  let progress = 8;
+
+  progressWrap.classList.remove('hidden');
+  progressBar.style.width = `${progress}%`;
+
+  progressTimer = setInterval(() => {
+    progress = Math.min(progress + Math.max(3, (92 - progress) * 0.14), 92);
+    progressBar.style.width = `${progress}%`;
+  }, 220);
+}
+
+function stopFakeProgress(finish = false) {
+  if (progressTimer) {
+    clearInterval(progressTimer);
+    progressTimer = null;
+  }
+
+  if (finish) {
+    progressBar.style.width = '100%';
+    setTimeout(() => {
+      progressWrap.classList.add('hidden');
+      progressBar.style.width = '0%';
+    }, 250);
+    return;
+  }
+
+  progressWrap.classList.add('hidden');
+  progressBar.style.width = '0%';
 }
 
 function isPdfFile(file) {

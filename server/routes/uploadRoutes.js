@@ -1,10 +1,8 @@
 const express = require('express');
 
 const upload = require('../middleware/uploadMiddleware');
-const {
-  extractInvoiceDataFromBuffer,
-  createCsvFromInvoices,
-} = require('../services/invoiceExtractor');
+const { createCsvFromInvoices } = require('../services/invoiceExtractor');
+const { processInvoiceBuffer } = require('../services/extractionPipeline');
 
 const router = express.Router();
 
@@ -23,16 +21,18 @@ router.post('/upload', upload.array('invoices', 25), async (req, res, next) => {
     const extractedRows = await Promise.all(
       uploadedFiles.map(async (file) => {
         try {
-          const extracted = await extractInvoiceDataFromBuffer(file.buffer);
-          const issues = buildIssues(extracted);
+          const extracted = await processInvoiceBuffer(file.buffer, file.originalname);
           const row = {
             fileName: file.originalname,
             invoiceNumber: extracted.invoiceNumber,
             date: extracted.date,
             amount: extracted.amount,
             vendor: extracted.vendor,
-            status: issues.length > 0 ? 'partial' : 'ok',
-            issues,
+            confidence: extracted.confidence,
+            extractionSource: extracted.extractionSource,
+            status: extracted.needsReview ? 'needs_review' : 'ok',
+            needsReview: extracted.needsReview,
+            issues: extracted.issues,
           };
 
           if (includeRawText) {
@@ -47,7 +47,10 @@ router.post('/upload', upload.array('invoices', 25), async (req, res, next) => {
             date: '',
             amount: '',
             vendor: '',
+            confidence: 0,
+            extractionSource: 'error',
             status: 'error',
+            needsReview: true,
             issues: ['Failed to parse PDF text.'],
             error: error.message || 'Failed to parse PDF text.',
           };
@@ -56,7 +59,7 @@ router.post('/upload', upload.array('invoices', 25), async (req, res, next) => {
     );
 
     const csv = createCsvFromInvoices(extractedRows);
-    const partialCount = extractedRows.filter((row) => row.status === 'partial').length;
+    const partialCount = extractedRows.filter((row) => row.status === 'needs_review').length;
     const errorCount = extractedRows.filter((row) => row.status === 'error').length;
     const parsedCount = extractedRows.length - errorCount;
 
@@ -74,16 +77,6 @@ router.post('/upload', upload.array('invoices', 25), async (req, res, next) => {
     return next(error);
   }
 });
-
-function buildIssues(extracted) {
-  const issues = [];
-
-  if (!extracted.invoiceNumber) issues.push('Invoice number not found.');
-  if (!extracted.date) issues.push('Invoice date not found.');
-  if (!extracted.amount) issues.push('Invoice amount not found.');
-
-  return issues;
-}
 
 function buildResponseMessage(total, partialCount, errorCount) {
   if (errorCount > 0) {

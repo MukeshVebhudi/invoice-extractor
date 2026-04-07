@@ -2,11 +2,16 @@ const { PDFParse } = require('pdf-parse');
 const { Parser } = require('json2csv');
 
 async function extractInvoiceDataFromBuffer(buffer) {
+  const text = await readPdfText(buffer);
+  return extractInvoiceDataFromText(text);
+}
+
+async function readPdfText(buffer) {
   const parser = new PDFParse({ data: buffer });
 
   try {
     const result = await parser.getText();
-    return extractInvoiceDataFromText(result?.text || '');
+    return result?.text || '';
   } finally {
     await parser.destroy();
   }
@@ -20,6 +25,8 @@ function createCsvFromInvoices(invoices) {
       { label: 'date', value: 'date', default: '' },
       { label: 'amount', value: 'amount', default: '' },
       { label: 'vendor', value: 'vendor', default: '' },
+      { label: 'confidence', value: 'confidence', default: '' },
+      { label: 'extraction_source', value: 'extractionSource', default: '' },
       { label: 'status', value: 'status', default: '' },
     ],
   });
@@ -33,13 +40,24 @@ function extractInvoiceDataFromText(text) {
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
+  const fallback = extractUsingFallbackRules(lines);
+  const invoiceNumber = extractInvoiceNumber(normalizedText) || fallback.invoiceNumber;
+  const date = extractDate(normalizedText) || fallback.date;
+  const amount = extractAmount(normalizedText) || fallback.amount;
+  const vendor = extractVendor(lines) || fallback.vendor;
+  const issues = [];
+
+  if (!invoiceNumber) issues.push('Invoice number not found.');
+  if (!date) issues.push('Invoice date not found.');
+  if (!amount) issues.push('Invoice amount not found.');
 
   return {
-    invoiceNumber: extractInvoiceNumber(normalizedText),
-    date: extractDate(normalizedText),
-    amount: extractAmount(normalizedText),
-    vendor: extractVendor(lines),
+    invoiceNumber,
+    date,
+    amount,
+    vendor,
     rawText: normalizedText,
+    issues,
   };
 }
 
@@ -98,6 +116,73 @@ function extractVendor(lines) {
     if ((line.match(/\d/g) || []).length >= 5) continue;
     if ((line.match(/[A-Za-z]/g) || []).length < 3) continue;
     return line;
+  }
+
+  return '';
+}
+
+function extractUsingFallbackRules(lines) {
+  const result = {
+    invoiceNumber: '',
+    date: '',
+    amount: '',
+    vendor: '',
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const nextLine = lines[index + 1] || '';
+
+    if (!result.invoiceNumber) {
+      result.invoiceNumber = extractLabeledValue(line, nextLine, [
+        'invoice number',
+        'invoice no',
+        'invoice #',
+        'reference',
+        'invoice id',
+      ]);
+    }
+
+    if (!result.date) {
+      const rawDate = extractLabeledValue(line, nextLine, [
+        'date',
+        'invoice date',
+        'issued',
+        'issue date',
+      ]);
+      result.date = normalizeDate(rawDate);
+    }
+
+    if (!result.amount) {
+      const rawAmount = extractLabeledValue(line, nextLine, [
+        'total',
+        'total due',
+        'amount due',
+        'balance due',
+        'grand total',
+        'total payable',
+      ]);
+      result.amount = normalizeAmount(rawAmount);
+    }
+  }
+
+  if (!result.vendor) {
+    result.vendor = lines[0] || '';
+  }
+
+  return result;
+}
+
+function extractLabeledValue(line, nextLine, labels) {
+  const lower = line.toLowerCase();
+
+  for (const label of labels) {
+    if (!lower.includes(label)) continue;
+
+    const sameLine = line.split(/[:#-]/).slice(1).join(' ').trim();
+    if (sameLine) return sameLine;
+
+    if (nextLine) return nextLine.trim();
   }
 
   return '';
@@ -208,6 +293,7 @@ function findLastMatch(text, pattern) {
 
 module.exports = {
   extractInvoiceDataFromBuffer,
+  readPdfText,
   createCsvFromInvoices,
   extractInvoiceDataFromText,
   normalizeAmount,

@@ -1,13 +1,17 @@
 # Invoice Extractor
 
-Deployable full-stack MVP for uploading invoice PDFs, extracting key invoice fields, previewing the results, and downloading a CSV file.
+Deployable full-stack invoice extraction app for uploading PDFs, extracting key invoice fields, previewing the results, and downloading a CSV file.
 
 ## Features
 
 - Upload one or multiple PDF invoices
+- Layered extraction pipeline: regex first, fallback parsing next
+- Optional AI fallback for missing fields
+- Optional OCR fallback for low-text or scanned PDFs
 - Extract invoice number, date, amount, and vendor
 - Normalize dates and amounts into consistent output
 - Preview extracted rows in the browser
+- Show confidence and review state per row
 - Download CSV with stable headers
 - Run frontend and backend together as one Express service
 
@@ -35,7 +39,10 @@ server/
   routes/
     uploadRoutes.js
   services/
+    aiExtractorService.js
+    extractionPipeline.js
     invoiceExtractor.js
+    ocrService.js
   tests/
     invoiceExtractor.test.js
 ```
@@ -94,11 +101,13 @@ Example response:
       "date": "2026-04-06",
       "amount": "$1234.56",
       "vendor": "Acme Inc.",
+      "confidence": 84,
+      "extractionSource": "regex+ai",
       "status": "ok",
       "issues": []
     }
   ],
-  "csv": "\"file_name\",\"invoice_number\",\"date\",\"amount\",\"vendor\",\"status\"\n..."
+  "csv": "\"file_name\",\"invoice_number\",\"date\",\"amount\",\"vendor\",\"confidence\",\"extraction_source\",\"status\"\n..."
 }
 ```
 
@@ -108,6 +117,24 @@ Notes:
 - non-PDF files are rejected
 - max files per request: `25`
 - max file size: `15 MB` each
+- rows can return `needsReview: true` when confidence is low
+- `status` can be `ok`, `needs_review`, or `error`
+
+## Optional Environment Variables
+
+These are optional. The app still works without them.
+
+```text
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4o-mini
+OCR_SPACE_API_KEY=...
+```
+
+Behavior:
+
+- regex and fallback parsing always run first
+- OCR is only attempted when PDF text is very weak and `OCR_SPACE_API_KEY` is set
+- AI is only attempted when important fields are still missing and `OPENAI_API_KEY` is set
 
 ## Test
 
@@ -150,6 +177,6 @@ After deployment:
 - No authentication
 - No database
 - No background jobs
-- No cloud OCR or AI parsing
+- Optional OCR / AI only as fallback, not primary extraction
 
 The app stays intentionally simple, but is structured to be clean enough for deployment and iteration.

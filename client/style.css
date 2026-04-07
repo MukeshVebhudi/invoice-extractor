@@ -251,6 +251,23 @@ button:disabled {
   color: var(--muted);
 }
 
+.progress {
+  width: 100%;
+  height: 8px;
+  margin-top: 14px;
+  border-radius: 999px;
+  background: rgba(99, 78, 61, 0.12);
+  overflow: hidden;
+}
+
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), #c17b59);
+  transition: width 180ms ease;
+}
+
 .loading-dot {
   width: 10px;
   height: 10px;
@@ -306,6 +323,31 @@ tbody tr:last-child td {
 
 tbody tr.needs-review td {
   background: rgba(234, 212, 196, 0.18);
+}
+
+.confidence-cell {
+  font-weight: 600;
+}
+
+.review-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.review-tag.ok {
+  background: #eef8f3;
+  color: var(--success);
+}
+
+.review-tag.warn {
+  background: #fff3e3;
+  color: #8a5413;
 }
 
 pre {
