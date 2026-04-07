@@ -13,6 +13,7 @@ const submitButton = document.getElementById('submitButton');
 const sampleButton = document.getElementById('sampleButton');
 const clearButton = document.getElementById('clearButton');
 const downloadButton = document.getElementById('downloadButton');
+const downloadExcelButton = document.getElementById('downloadExcelButton');
 const sortSelect = document.getElementById('sortSelect');
 const filterButtons = Array.from(document.querySelectorAll('.filter-button'));
 
@@ -40,7 +41,7 @@ downloadButton.addEventListener('click', () => {
     return;
   }
 
-  latestCsv = buildCsvFromRows(extractedRows);
+  latestCsv = buildCsvFromRows(getExportRows());
   const blob = new Blob([latestCsv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -50,6 +51,48 @@ downloadButton.addEventListener('click', () => {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+});
+
+downloadExcelButton.addEventListener('click', async () => {
+  if (!extractedRows.length) {
+    return;
+  }
+
+  try {
+    toggleBusy(true);
+    updateStatus('Preparing Excel file...', '');
+
+    const response = await fetch('/api/export/xlsx', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ rows: getExportRows() }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({
+        error: 'Excel export failed.',
+      }));
+      throw new Error(payload.error || 'Excel export failed.');
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'invoices.xlsx';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    updateStatus('Excel file is ready.', 'success');
+  } catch (error) {
+    updateStatus(error.message || 'Excel export failed.', 'error');
+  } finally {
+    toggleBusy(false);
+    updateButtons();
+  }
 });
 
 sortSelect.addEventListener('change', () => {
@@ -98,7 +141,7 @@ form.addEventListener('submit', async (event) => {
     }
 
     extractedRows = (payload.data || []).map((row, index) => toEditableRow(row, index));
-    latestCsv = buildCsvFromRows(extractedRows);
+    latestCsv = buildCsvFromRows(getExportRows());
     renderResults();
     jsonOutput.textContent = JSON.stringify(payload, null, 2);
     resultsSection.classList.remove('hidden');
@@ -237,11 +280,15 @@ function appendEditableCell(tr, row, key, confidence, label) {
   input.value = row[key] || '';
   input.setAttribute('aria-label', `${label} for ${row.fileName}`);
   input.title = `${label} confidence: ${confidence}%`;
+  if (row.invalidFields.includes(key)) {
+    input.classList.add('is-invalid');
+  }
   input.addEventListener('input', () => {
     row[key] = input.value.trim();
     row.wasEdited = true;
-    row.status = row.needsReview ? 'needs_review' : 'ok';
-    latestCsv = buildCsvFromRows(extractedRows);
+    refreshRowState(row);
+    latestCsv = buildCsvFromRows(getExportRows());
+    renderResults();
   });
   td.appendChild(input);
   tr.appendChild(td);
@@ -262,23 +309,25 @@ function appendConfidenceCell(tr, row) {
 
 function appendIssuesCell(tr, row) {
   const td = document.createElement('td');
-  if (!row.issues.length) {
+  const issues = getVisibleIssues(row);
+
+  if (!issues.length) {
     td.textContent = 'None';
     td.className = 'issues-cell muted';
     tr.appendChild(td);
     return;
   }
 
-  const issues = document.createElement('div');
-  issues.className = 'issues-list';
-  row.issues.forEach((issue) => {
+  const issueList = document.createElement('div');
+  issueList.className = 'issues-list';
+  issues.forEach((issue) => {
     const chip = document.createElement('span');
     chip.className = 'issue-chip';
     chip.textContent = issue;
     chip.title = issue;
-    issues.appendChild(chip);
+    issueList.appendChild(chip);
   });
-  td.appendChild(issues);
+  td.appendChild(issueList);
   tr.appendChild(td);
 }
 
@@ -293,10 +342,13 @@ function appendReviewCell(tr, row) {
 }
 
 function toEditableRow(row, index) {
-  return {
+  const editableRow = {
     ...row,
     originalIndex: index,
     wasEdited: false,
+    originalIssues: [...(row.issues || [])],
+    validationIssues: [],
+    invalidFields: [],
     fieldConfidence: {
       invoiceNumberConfidence: inferFieldConfidence(row.invoiceNumber, row.issues, 'Invoice number'),
       dateConfidence: inferFieldConfidence(row.date, row.issues, 'Invoice date'),
@@ -304,6 +356,9 @@ function toEditableRow(row, index) {
       vendorConfidence: inferFieldConfidence(row.vendor, row.issues, 'Vendor'),
     },
   };
+
+  refreshRowState(editableRow);
+  return editableRow;
 }
 
 function inferFieldConfidence(value, issues, label) {
@@ -330,6 +385,7 @@ function updateButtons() {
   submitButton.disabled = !hasFiles;
   clearButton.disabled = !hasFiles && !hasRows;
   downloadButton.disabled = !hasRows;
+  downloadExcelButton.disabled = !hasRows;
 }
 
 function toggleBusy(isBusy) {
@@ -338,6 +394,7 @@ function toggleBusy(isBusy) {
   sampleButton.disabled = isBusy;
   clearButton.disabled = isBusy;
   downloadButton.disabled = isBusy || !extractedRows.length;
+  downloadExcelButton.disabled = isBusy || !extractedRows.length;
 }
 
 function startFakeProgress() {
@@ -424,6 +481,19 @@ function buildCsvFromRows(rows) {
   return `${lines.join('\n')}\n`;
 }
 
+function getExportRows() {
+  return extractedRows.map((row) => ({
+    fileName: row.fileName,
+    invoiceNumber: row.invoiceNumber,
+    date: row.date,
+    amount: row.amount,
+    vendor: row.vendor,
+    confidence: row.confidence,
+    extractionSource: row.extractionSource,
+    status: row.needsReview ? 'needs_review' : 'ok',
+  }));
+}
+
 function toCsvField(value) {
   const text = String(value ?? '');
   return `"${text.replaceAll('"', '""')}"`;
@@ -479,7 +549,7 @@ function loadSampleRows() {
     },
   ].map((row, index) => toEditableRow(row, index));
 
-  latestCsv = buildCsvFromRows(extractedRows);
+  latestCsv = buildCsvFromRows(getExportRows());
   renderResults();
   updateButtons();
   updateStatus('Loaded sample invoice results.', 'success');
@@ -505,4 +575,82 @@ function escapeHtml(value) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
+}
+
+function refreshRowState(row) {
+  row.validationIssues = [];
+  row.invalidFields = [];
+
+  if (!row.invoiceNumber) {
+    row.validationIssues.push('Invoice number is empty.');
+    row.invalidFields.push('invoiceNumber');
+  }
+
+  if (!row.date) {
+    row.validationIssues.push('Date is empty.');
+    row.invalidFields.push('date');
+  } else if (!isLikelyDate(row.date)) {
+    row.validationIssues.push('Edited date format looks invalid.');
+    row.invalidFields.push('date');
+  }
+
+  if (!row.amount) {
+    row.validationIssues.push('Amount is empty.');
+    row.invalidFields.push('amount');
+  } else if (!isLikelyAmount(row.amount)) {
+    row.validationIssues.push('Edited amount format looks invalid.');
+    row.invalidFields.push('amount');
+  }
+
+  if (!row.vendor) {
+    row.validationIssues.push('Vendor is empty.');
+    row.invalidFields.push('vendor');
+  }
+
+  const unresolvedExtractionIssues = (row.originalIssues || []).filter((issue) =>
+    shouldKeepIssue(issue, row)
+  );
+
+  row.issues = uniqueValues([...unresolvedExtractionIssues, ...row.validationIssues]);
+  row.needsReview = row.issues.length > 0 || Number(row.confidence) < 80;
+  row.status = row.needsReview ? 'needs_review' : 'ok';
+}
+
+function getVisibleIssues(row) {
+  return row.issues || [];
+}
+
+function shouldKeepIssue(issue, row) {
+  const lower = String(issue || '').toLowerCase();
+
+  if (lower.includes('invoice number not found')) {
+    return !row.invoiceNumber;
+  }
+
+  if (lower.includes('invoice date not found')) {
+    return !row.date;
+  }
+
+  if (lower.includes('invoice amount not found')) {
+    return !row.amount;
+  }
+
+  if (lower.includes('low-confidence extraction')) {
+    return Number(row.confidence) < 80;
+  }
+
+  return true;
+}
+
+function isLikelyDate(value) {
+  return /^(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/(\d{2}|\d{4})|\d{1,2}-\d{1,2}-(\d{2}|\d{4})|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})$/.test(String(value).trim());
+}
+
+function isLikelyAmount(value) {
+  return /^(?:[A-Z]{3}\s*|[$€£₹]\s*)?-?\d[\d,]*(?:\.\d+)?(?:\s*[A-Z]{3}|[$€£₹])?$/.test(String(value).trim())
+    || /^(?:[A-Z]{3}\s*|[$€£₹]\s*)?-?\d[\d.]*,\d+(?:\s*[A-Z]{3}|[$€£₹])?$/.test(String(value).trim());
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))];
 }

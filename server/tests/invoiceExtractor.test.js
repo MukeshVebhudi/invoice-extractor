@@ -11,6 +11,7 @@ const {
   normalizeDate,
   sanitizeInvoiceNumber,
 } = require('../services/invoiceExtractor');
+const { createWorkbookBuffer } = require('../services/exportService');
 const { processInvoiceBuffer } = require('../services/extractionPipeline');
 
 test('extractInvoiceDataFromText parses common invoice fields', () => {
@@ -88,6 +89,24 @@ test('createCsvFromInvoices outputs CSV headers and rows', () => {
 
   assert.match(csv, /"file_name","invoice_number","date","amount","vendor","confidence","extraction_source","status"/);
   assert.match(csv, /"invoice\.pdf","A-1","2026-04-06","\$100\.00","Acme",91,"regex","ok"/);
+});
+
+test('createWorkbookBuffer outputs an xlsx file buffer', () => {
+  const workbook = createWorkbookBuffer([
+    {
+      fileName: 'invoice.pdf',
+      invoiceNumber: 'A-1',
+      date: '2026-04-06',
+      amount: '$100.00',
+      vendor: 'Acme',
+      confidence: 91,
+      extractionSource: 'regex',
+      status: 'ok',
+    },
+  ]);
+
+  assert.equal(Buffer.isBuffer(workbook), true);
+  assert.equal(workbook.subarray(0, 2).toString('utf8'), 'PK');
 });
 
 test('normalize helpers return consistent values', () => {

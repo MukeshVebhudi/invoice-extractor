@@ -2,6 +2,7 @@ const express = require('express');
 
 const upload = require('../middleware/uploadMiddleware');
 const { createCsvFromInvoices } = require('../services/invoiceExtractor');
+const { createWorkbookBuffer } = require('../services/exportService');
 const { processInvoiceBuffer } = require('../services/extractionPipeline');
 
 const router = express.Router();
@@ -73,6 +74,42 @@ router.post('/upload', upload.array('invoices', 25), async (req, res, next) => {
       data: extractedRows,
       csv,
     });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post('/export/xlsx', (req, res, next) => {
+  try {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+
+    if (!rows.length) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please provide at least one extracted invoice row.',
+      });
+    }
+
+    const workbook = createWorkbookBuffer(
+      rows.map((row) => ({
+        fileName: row.fileName || '',
+        invoiceNumber: row.invoiceNumber || '',
+        date: row.date || '',
+        amount: row.amount || '',
+        vendor: row.vendor || '',
+        confidence: row.confidence ?? '',
+        extractionSource: row.extractionSource || '',
+        status: row.status || '',
+      }))
+    );
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="invoices.xlsx"');
+
+    return res.send(workbook);
   } catch (error) {
     return next(error);
   }
