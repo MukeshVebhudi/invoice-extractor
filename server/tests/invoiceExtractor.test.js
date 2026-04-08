@@ -12,7 +12,11 @@ const {
   sanitizeInvoiceNumber,
 } = require('../services/invoiceExtractor');
 const { createWorkbookBuffer } = require('../services/exportService');
-const { processInvoiceBuffer } = require('../services/extractionPipeline');
+const { processInvoiceBuffer, processTextDocument } = require('../services/extractionPipeline');
+const {
+  preprocessText,
+  assessTextReadability,
+} = require('../services/textProcessingService');
 
 test('extractInvoiceDataFromText parses common invoice fields', () => {
   const text = [
@@ -27,6 +31,7 @@ test('extractInvoiceDataFromText parses common invoice fields', () => {
   assert.equal(result.vendor, 'ACME Consulting LLC');
   assert.equal(result.invoiceNumber, 'INV-1001');
   assert.equal(result.date, '2026-04-06');
+  assert.equal(result.dueDate, '');
   assert.equal(result.amount, '$1234.56');
   assert.deepEqual(result.issues, []);
 });
@@ -77,31 +82,49 @@ test('createCsvFromInvoices outputs CSV headers and rows', () => {
   const csv = createCsvFromInvoices([
     {
       fileName: 'invoice.pdf',
+      inputType: 'pdf',
       invoiceNumber: 'A-1',
       date: '2026-04-06',
+      dueDate: '2026-05-06',
       amount: '$100.00',
+      subtotal: '$90.00',
+      tax: '$10.00',
+      currency: '$',
       vendor: 'Acme',
+      customerName: 'Northwind',
       confidence: 91,
+      needsReview: false,
+      textReadable: true,
       extractionSource: 'regex',
       status: 'ok',
+      issues: [],
     },
   ]);
 
-  assert.match(csv, /"file_name","invoice_number","date","amount","vendor","confidence","extraction_source","status"/);
-  assert.match(csv, /"invoice\.pdf","A-1","2026-04-06","\$100\.00","Acme",91,"regex","ok"/);
+  assert.match(csv, /"file_name","input_type","invoice_number","date","due_date","amount","subtotal","tax","currency","vendor","customer_name","confidence","needs_review","text_readable","extraction_source","status","issues"/);
+  assert.match(csv, /"invoice\.pdf","pdf","A-1","2026-04-06","2026-05-06","\$100\.00","\$90\.00","\$10\.00","\$","Acme","Northwind",91,false,true,"regex","ok",""/);
 });
 
 test('createWorkbookBuffer outputs an xlsx file buffer', async () => {
   const workbook = await createWorkbookBuffer([
     {
       fileName: 'invoice.pdf',
+      inputType: 'pdf',
       invoiceNumber: 'A-1',
       date: '2026-04-06',
+      dueDate: '2026-05-06',
       amount: '$100.00',
+      subtotal: '$90.00',
+      tax: '$10.00',
+      currency: '$',
       vendor: 'Acme',
+      customerName: 'Northwind',
       confidence: 91,
+      needsReview: false,
+      textReadable: true,
       extractionSource: 'regex',
       status: 'ok',
+      issues: '',
     },
   ]);
 
@@ -123,11 +146,59 @@ test('normalize helpers return consistent values', () => {
 });
 
 test('processInvoiceBuffer returns confidence and review state', async () => {
-  const result = await processInvoiceBuffer(fs.readFileSync(path.join(process.cwd(), 'test-invoice.pdf')), 'test-invoice.pdf');
+  const result = await processInvoiceBuffer(fs.readFileSync(path.join(process.cwd(), 'test-invoice.pdf')));
 
-  assert.equal(result.extractionSource, 'regex');
+  assert.equal(result.extractionSource, 'text');
   assert.equal(result.needsReview, false);
+  assert.equal(result.textReadable, true);
   assert.ok(result.confidence >= 80);
+});
+
+test('preprocessText normalizes spaced labels and punctuation noise', () => {
+  const processed = preprocessText('I N V O I C E   #  76326 \n Total Amount :  90.937,98 €');
+
+  assert.match(processed.normalizedText, /INVOICE #76326/i);
+  assert.match(processed.normalizedText, /TOTAL AMOUNT: 90.937,98€/i);
+});
+
+test('assessTextReadability flags weak PDF text as unsupported', () => {
+  const processed = preprocessText('   ');
+  const readability = assessTextReadability(processed, 'pdf');
+
+  assert.equal(readability.readable, false);
+  assert.match(readability.issues.join(' '), /No readable text found/i);
+});
+
+test('processTextDocument supports plain text invoice input', () => {
+  const result = processTextDocument([
+    'Northwind Studio',
+    'Invoice Number: TXT-204',
+    'Date: 04/08/2026',
+    'Due Date: 04/30/2026',
+    'Customer: Contoso Retail',
+    'Subtotal: $900.00',
+    'Tax: $80.00',
+    'Total Amount: $980.00',
+  ].join('\n'), { inputType: 'txt' });
+
+  assert.equal(result.inputType, 'txt');
+  assert.equal(result.textReadable, true);
+  assert.equal(result.invoiceNumber, 'TXT-204');
+  assert.equal(result.date, '2026-04-08');
+  assert.equal(result.dueDate, '2026-04-30');
+  assert.equal(result.subtotal, '$900.00');
+  assert.equal(result.tax, '$80.00');
+  assert.equal(result.currency, '$');
+  assert.equal(result.customerName, 'Contoso Retail');
+  assert.equal(result.amount, '$980.00');
+});
+
+test('processTextDocument marks unsupported text-poor pdf input clearly', () => {
+  const result = processTextDocument('12 34', { inputType: 'pdf' });
+
+  assert.equal(result.textReadable, false);
+  assert.equal(result.extractionSource, 'unsupported');
+  assert.match(result.issues.join(' '), /Likely scanned or image-only document/i);
 });
 
 test('extractInvoiceDataFromText supports european invoice totals', () => {
@@ -178,6 +249,47 @@ test('extractInvoiceDataFromText handles standard invoice labels without picking
   assert.equal(result.date, '2026-04-01');
   assert.equal(result.vendor, 'ABC Corp');
   assert.equal(result.amount, '$120.50');
+});
+
+test('extractInvoiceDataFromText extracts common accounting support fields', () => {
+  const text = [
+    'ACME Services',
+    'Invoice Number: INV-700',
+    'Invoice Date: 04/01/2026',
+    'Due Date: 04/15/2026',
+    'Customer: Blue Ridge Retail',
+    'Subtotal: $200.00',
+    'Tax: $15.00',
+    'Total Amount: $215.00',
+  ].join('\n');
+
+  const result = extractInvoiceDataFromText(text);
+
+  assert.equal(result.dueDate, '2026-04-15');
+  assert.equal(result.subtotal, '$200.00');
+  assert.equal(result.tax, '$15.00');
+  assert.equal(result.currency, '$');
+  assert.equal(result.customerName, 'Blue Ridge Retail');
+});
+
+test('extractInvoiceDataFromText prefers labeled vendor and full date on bill-style invoices', () => {
+  const text = [
+    'Bill',
+    'Invoice #: BILL-004',
+    'Date: 04/03/202',
+    '6',
+    'Vendor: Tech Ltd',
+    'Item Qty Price',
+    'Subscription 1 89.99',
+    'Total Amount: $89.99',
+  ].join('\n');
+
+  const result = extractInvoiceDataFromText(text);
+
+  assert.equal(result.invoiceNumber, 'BILL-004');
+  assert.equal(result.date, '2026-04-03');
+  assert.equal(result.vendor, 'Tech Ltd');
+  assert.equal(result.amount, '$89.99');
 });
 
 test('sanitizeInvoiceNumber rejects generic headings', () => {

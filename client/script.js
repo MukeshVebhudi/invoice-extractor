@@ -8,12 +8,13 @@ const progressBar = document.getElementById('progressBar');
 const statusBox = document.getElementById('status');
 const resultsSection = document.getElementById('resultsSection');
 const resultsBody = document.getElementById('resultsBody');
-const jsonOutput = document.getElementById('jsonOutput');
 const submitButton = document.getElementById('submitButton');
-const sampleButton = document.getElementById('sampleButton');
 const clearButton = document.getElementById('clearButton');
 const downloadButton = document.getElementById('downloadButton');
 const downloadExcelButton = document.getElementById('downloadExcelButton');
+const parseTextButton = document.getElementById('parseTextButton');
+const rawTextInput = document.getElementById('rawTextInput');
+const textInputName = document.getElementById('textInputName');
 const sortSelect = document.getElementById('sortSelect');
 const filterButtons = Array.from(document.querySelectorAll('.filter-button'));
 
@@ -32,8 +33,47 @@ clearButton.addEventListener('click', () => {
   resetUiState();
 });
 
-sampleButton.addEventListener('click', () => {
-  loadSampleRows();
+parseTextButton.addEventListener('click', async () => {
+  const text = rawTextInput.value.trim();
+  if (!text) {
+    updateStatus('Paste some invoice text first.', 'error');
+    return;
+  }
+
+  try {
+    toggleBusy(true);
+    updateStatus('Reading pasted text...', '');
+
+    const response = await fetch('/api/parse-text', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fileName: textInputName.value.trim() || 'pasted-text.txt',
+        text,
+      }),
+    });
+
+    const payload = await response.json().catch(() => ({
+      success: false,
+      error: 'Server returned an invalid response.',
+    }));
+
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.error || 'Could not read pasted text.');
+    }
+
+    extractedRows = (payload.data || []).map((row, index) => toEditableRow(row, index));
+    latestCsv = buildCsvFromRows(getExportRows());
+    renderResults();
+    updateStatus(payload.message || 'Processed pasted text.', payload.partialCount > 0 ? 'warning' : 'success');
+  } catch (error) {
+    updateStatus(error.message || 'Could not read pasted text.', 'error');
+  } finally {
+    toggleBusy(false);
+    updateButtons();
+  }
 });
 
 downloadButton.addEventListener('click', () => {
@@ -112,7 +152,7 @@ form.addEventListener('submit', async (event) => {
   event.preventDefault();
 
   if (!selectedFileState.length) {
-    updateStatus('Select at least one PDF file.', 'error');
+    updateStatus('Select at least one PDF or TXT file.', 'error');
     return;
   }
 
@@ -143,7 +183,6 @@ form.addEventListener('submit', async (event) => {
     extractedRows = (payload.data || []).map((row, index) => toEditableRow(row, index));
     latestCsv = buildCsvFromRows(getExportRows());
     renderResults();
-    jsonOutput.textContent = JSON.stringify(payload, null, 2);
     resultsSection.classList.remove('hidden');
     const statusType =
       payload.errorCount > 0 ? 'error' : payload.partialCount > 0 ? 'warning' : 'success';
@@ -221,10 +260,17 @@ function renderResults() {
     }
 
     appendStaticCell(tr, row.fileName);
+    appendStaticCell(tr, formatInputType(row.inputType));
+    appendReadableCell(tr, row);
     appendEditableCell(tr, row, 'invoiceNumber', row.fieldConfidence.invoiceNumberConfidence, 'Invoice number');
     appendEditableCell(tr, row, 'date', row.fieldConfidence.dateConfidence, 'Date');
+    appendEditableCell(tr, row, 'dueDate', row.fieldConfidence.dueDateConfidence, 'Due date');
     appendEditableCell(tr, row, 'amount', row.fieldConfidence.amountConfidence, 'Amount');
+    appendEditableCell(tr, row, 'subtotal', row.fieldConfidence.subtotalConfidence, 'Subtotal');
+    appendEditableCell(tr, row, 'tax', row.fieldConfidence.taxConfidence, 'Tax');
+    appendEditableCell(tr, row, 'currency', row.fieldConfidence.currencyConfidence, 'Currency');
     appendEditableCell(tr, row, 'vendor', row.fieldConfidence.vendorConfidence, 'Vendor');
+    appendEditableCell(tr, row, 'customerName', row.fieldConfidence.customerNameConfidence, 'Customer');
     appendConfidenceCell(tr, row);
     appendIssuesCell(tr, row);
     appendReviewCell(tr, row);
@@ -301,8 +347,13 @@ function appendConfidenceCell(tr, row) {
   td.title = [
     `Invoice #: ${row.fieldConfidence.invoiceNumberConfidence}%`,
     `Date: ${row.fieldConfidence.dateConfidence}%`,
+    `Due date: ${row.fieldConfidence.dueDateConfidence}%`,
     `Amount: ${row.fieldConfidence.amountConfidence}%`,
+    `Subtotal: ${row.fieldConfidence.subtotalConfidence}%`,
+    `Tax: ${row.fieldConfidence.taxConfidence}%`,
+    `Currency: ${row.fieldConfidence.currencyConfidence}%`,
     `Vendor: ${row.fieldConfidence.vendorConfidence}%`,
+    `Customer: ${row.fieldConfidence.customerNameConfidence}%`,
   ].join('\n');
   tr.appendChild(td);
 }
@@ -336,7 +387,7 @@ function appendReviewCell(tr, row) {
   const tag = document.createElement('span');
   const needsReview = row.needsReview || row.status === 'error';
   tag.className = needsReview ? 'review-tag warn' : 'review-tag ok';
-  tag.textContent = needsReview ? 'Needs Review' : 'Ready';
+  tag.textContent = needsReview ? 'Check This' : 'Looks Good';
   td.appendChild(tag);
   tr.appendChild(td);
 }
@@ -350,10 +401,15 @@ function toEditableRow(row, index) {
     validationIssues: [],
     invalidFields: [],
     fieldConfidence: {
-      invoiceNumberConfidence: inferFieldConfidence(row.invoiceNumber, row.issues, 'Invoice number'),
-      dateConfidence: inferFieldConfidence(row.date, row.issues, 'Invoice date'),
-      amountConfidence: inferFieldConfidence(row.amount, row.issues, 'Invoice amount'),
-      vendorConfidence: inferFieldConfidence(row.vendor, row.issues, 'Vendor'),
+      invoiceNumberConfidence: row.fieldConfidence?.invoiceNumberConfidence ?? inferFieldConfidence(row.invoiceNumber, row.issues, 'Invoice number'),
+      dateConfidence: row.fieldConfidence?.dateConfidence ?? inferFieldConfidence(row.date, row.issues, 'Invoice date'),
+      dueDateConfidence: row.fieldConfidence?.dueDateConfidence ?? inferFieldConfidence(row.dueDate, row.issues, 'Due date'),
+      amountConfidence: row.fieldConfidence?.amountConfidence ?? inferFieldConfidence(row.amount, row.issues, 'Invoice amount'),
+      subtotalConfidence: row.fieldConfidence?.subtotalConfidence ?? inferFieldConfidence(row.subtotal, row.issues, 'Subtotal'),
+      taxConfidence: row.fieldConfidence?.taxConfidence ?? inferFieldConfidence(row.tax, row.issues, 'Tax'),
+      currencyConfidence: row.fieldConfidence?.currencyConfidence ?? inferFieldConfidence(row.currency, row.issues, 'Currency'),
+      vendorConfidence: row.fieldConfidence?.vendorConfidence ?? inferFieldConfidence(row.vendor, row.issues, 'Vendor'),
+      customerNameConfidence: row.fieldConfidence?.customerNameConfidence ?? inferFieldConfidence(row.customerName, row.issues, 'Customer'),
     },
   };
 
@@ -386,12 +442,14 @@ function updateButtons() {
   clearButton.disabled = !hasFiles && !hasRows;
   downloadButton.disabled = !hasRows;
   downloadExcelButton.disabled = !hasRows;
+  downloadButton.classList.toggle('hidden', !hasRows);
+  downloadExcelButton.classList.toggle('hidden', !hasRows);
 }
 
 function toggleBusy(isBusy) {
   loadingIndicator.classList.toggle('hidden', !isBusy);
   submitButton.disabled = isBusy || !selectedFileState.length;
-  sampleButton.disabled = isBusy;
+  parseTextButton.disabled = isBusy;
   clearButton.disabled = isBusy;
   downloadButton.disabled = isBusy || !extractedRows.length;
   downloadExcelButton.disabled = isBusy || !extractedRows.length;
@@ -435,7 +493,12 @@ function stopFakeProgress(finish = false) {
 function isPdfFile(file) {
   return (
     file &&
-    (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))
+    (
+      file.type === 'application/pdf' ||
+      file.type === 'text/plain' ||
+      file.name.toLowerCase().endsWith('.pdf') ||
+      file.name.toLowerCase().endsWith('.txt')
+    )
   );
 }
 
@@ -454,13 +517,22 @@ function setInputFiles(files) {
 function buildCsvFromRows(rows) {
   const headers = [
     'file_name',
+    'input_type',
     'invoice_number',
     'date',
+    'due_date',
     'amount',
+    'subtotal',
+    'tax',
+    'currency',
     'vendor',
+    'customer_name',
     'confidence',
+    'needs_review',
+    'text_readable',
     'extraction_source',
     'status',
+    'issues',
   ];
 
   const lines = [headers.join(',')];
@@ -468,13 +540,22 @@ function buildCsvFromRows(rows) {
   rows.forEach((row) => {
     lines.push([
       row.fileName,
+      row.inputType,
       row.invoiceNumber,
       row.date,
+      row.dueDate,
       row.amount,
+      row.subtotal,
+      row.tax,
+      row.currency,
       row.vendor,
+      row.customerName,
       row.confidence,
+      row.needsReview,
+      row.textReadable,
       row.extractionSource,
       row.needsReview ? 'needs_review' : 'ok',
+      (row.issues || []).join(' | '),
     ].map(toCsvField).join(','));
   });
 
@@ -484,13 +565,22 @@ function buildCsvFromRows(rows) {
 function getExportRows() {
   return extractedRows.map((row) => ({
     fileName: row.fileName,
+    inputType: row.inputType,
     invoiceNumber: row.invoiceNumber,
     date: row.date,
+    dueDate: row.dueDate,
     amount: row.amount,
+    subtotal: row.subtotal,
+    tax: row.tax,
+    currency: row.currency,
     vendor: row.vendor,
+    customerName: row.customerName,
     confidence: row.confidence,
+    needsReview: row.needsReview,
+    textReadable: row.textReadable,
     extractionSource: row.extractionSource,
     status: row.needsReview ? 'needs_review' : 'ok',
+    issues: row.issues,
   }));
 }
 
@@ -509,64 +599,32 @@ function confidenceLevel(value) {
   return 'low';
 }
 
-function loadSampleRows() {
-  extractedRows = [
-    {
-      fileName: 'sample-us.pdf',
-      invoiceNumber: 'INV-1001',
-      date: '2026-04-01',
-      amount: '$120.50',
-      vendor: 'ABC Corp',
-      confidence: 96,
-      extractionSource: 'regex',
-      status: 'ok',
-      needsReview: false,
-      issues: [],
-    },
-    {
-      fileName: 'sample-eu.pdf',
-      invoiceNumber: '76326',
-      date: '2024-12-10',
-      amount: '€90937.98',
-      vendor: 'Veum, Wilkinson and Adams',
-      confidence: 81,
-      extractionSource: 'regex',
-      status: 'needs_review',
-      needsReview: true,
-      issues: ['Low-confidence extraction. Needs review.'],
-    },
-    {
-      fileName: 'sample-missing.pdf',
-      invoiceNumber: '',
-      date: '2026-04-07',
-      amount: '₹123456.78',
-      vendor: 'Sample Vendor',
-      confidence: 58,
-      extractionSource: 'regex+ai',
-      status: 'needs_review',
-      needsReview: true,
-      issues: ['Invoice number not found.', 'AI-assisted extraction used for missing values.'],
-    },
-  ].map((row, index) => toEditableRow(row, index));
-
-  latestCsv = buildCsvFromRows(getExportRows());
-  renderResults();
-  updateButtons();
-  updateStatus('Loaded sample invoice results.', 'success');
-}
-
 function resetUiState() {
   fileInput.value = '';
+  rawTextInput.value = '';
   latestCsv = '';
   selectedFileState = [];
   extractedRows = [];
   selectedFiles.innerHTML = '';
   resultsBody.innerHTML = '';
-  jsonOutput.textContent = '';
   resultsSection.classList.add('hidden');
   stopFakeProgress();
   updateStatus('', '');
   updateButtons();
+}
+
+function appendReadableCell(tr, row) {
+  const td = document.createElement('td');
+  const tag = document.createElement('span');
+  tag.className = row.textReadable ? 'review-tag ok' : 'review-tag warn';
+  tag.textContent = row.textReadable ? 'Yes' : 'No';
+  td.appendChild(tag);
+  tr.appendChild(td);
+}
+
+function formatInputType(value) {
+  if (value === 'pasted_text') return 'Pasted Text';
+  return String(value || '').toUpperCase() || 'PDF';
 }
 
 function escapeHtml(value) {
@@ -594,12 +652,32 @@ function refreshRowState(row) {
     row.invalidFields.push('date');
   }
 
+  if (row.dueDate && !isLikelyDate(row.dueDate)) {
+    row.validationIssues.push('Edited due date format looks invalid.');
+    row.invalidFields.push('dueDate');
+  }
+
   if (!row.amount) {
     row.validationIssues.push('Amount is empty.');
     row.invalidFields.push('amount');
   } else if (!isLikelyAmount(row.amount)) {
     row.validationIssues.push('Edited amount format looks invalid.');
     row.invalidFields.push('amount');
+  }
+
+  if (row.subtotal && !isLikelyAmount(row.subtotal)) {
+    row.validationIssues.push('Edited subtotal format looks invalid.');
+    row.invalidFields.push('subtotal');
+  }
+
+  if (row.tax && !isLikelyAmount(row.tax)) {
+    row.validationIssues.push('Edited tax format looks invalid.');
+    row.invalidFields.push('tax');
+  }
+
+  if (row.currency && !isLikelyCurrency(row.currency)) {
+    row.validationIssues.push('Edited currency looks invalid.');
+    row.invalidFields.push('currency');
   }
 
   if (!row.vendor) {
@@ -635,6 +713,10 @@ function shouldKeepIssue(issue, row) {
     return !row.amount;
   }
 
+  if (lower.includes('due date not found')) {
+    return !row.dueDate;
+  }
+
   if (lower.includes('low-confidence extraction')) {
     return Number(row.confidence) < 80;
   }
@@ -649,6 +731,10 @@ function isLikelyDate(value) {
 function isLikelyAmount(value) {
   return /^(?:[A-Z]{3}\s*|[$€£₹]\s*)?-?\d[\d,]*(?:\.\d+)?(?:\s*[A-Z]{3}|[$€£₹])?$/.test(String(value).trim())
     || /^(?:[A-Z]{3}\s*|[$€£₹]\s*)?-?\d[\d.]*,\d+(?:\s*[A-Z]{3}|[$€£₹])?$/.test(String(value).trim());
+}
+
+function isLikelyCurrency(value) {
+  return /^(?:USD|EUR|GBP|INR|CAD|AUD|JPY|CHF|AED|SGD|[$€£₹])$/i.test(String(value).trim());
 }
 
 function uniqueValues(values) {
