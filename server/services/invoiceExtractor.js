@@ -1,5 +1,6 @@
 const { PDFParse } = require('pdf-parse');
 const { Parser } = require('json2csv');
+const { preprocessText } = require('./textProcessingService');
 const CURRENCY_TOKENS = '(?:USD|EUR|GBP|INR|CAD|AUD|JPY|CHF|AED|SGD|[$€£₹])';
 
 async function extractInvoiceDataFromBuffer(buffer) {
@@ -22,13 +23,22 @@ function createCsvFromInvoices(invoices) {
   const parser = new Parser({
     fields: [
       { label: 'file_name', value: 'fileName', default: '' },
+      { label: 'input_type', value: 'inputType', default: '' },
       { label: 'invoice_number', value: 'invoiceNumber', default: '' },
       { label: 'date', value: 'date', default: '' },
+      { label: 'due_date', value: 'dueDate', default: '' },
       { label: 'amount', value: 'amount', default: '' },
+      { label: 'subtotal', value: 'subtotal', default: '' },
+      { label: 'tax', value: 'tax', default: '' },
+      { label: 'currency', value: 'currency', default: '' },
       { label: 'vendor', value: 'vendor', default: '' },
+      { label: 'customer_name', value: 'customerName', default: '' },
       { label: 'confidence', value: 'confidence', default: '' },
+      { label: 'needs_review', value: 'needsReview', default: '' },
+      { label: 'text_readable', value: 'textReadable', default: '' },
       { label: 'extraction_source', value: 'extractionSource', default: '' },
       { label: 'status', value: 'status', default: '' },
+      { label: 'issues', value: (row) => (row.issues || []).join(' | '), default: '' },
     ],
   });
 
@@ -36,16 +46,32 @@ function createCsvFromInvoices(invoices) {
 }
 
 function extractInvoiceDataFromText(text) {
-  const normalizedText = normalizeText(text);
-  const lines = normalizedText
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const processedText = preprocessText(text);
+  const { normalizedText, lines } = processedText;
   const fallback = extractUsingFallbackRules(lines);
-  const invoiceNumber = extractInvoiceNumber(normalizedText) || fallback.invoiceNumber;
-  const date = extractDate(normalizedText) || fallback.date;
-  const amount = extractAmount(normalizedText) || fallback.amount;
-  const vendor = extractVendor(lines) || fallback.vendor;
+  const invoiceMatch = extractInvoiceNumber(normalizedText);
+  const fallbackInvoice = fallback.invoiceNumber;
+  const invoiceNumber = invoiceMatch.value || fallbackInvoice;
+  const dateMatch = extractDate(normalizedText, ['date', 'invoice date']);
+  const fallbackDate = fallback.date;
+  const date = dateMatch.value || fallbackDate;
+  const dueDateMatch = extractDate(normalizedText, ['due date', 'payment due', 'pay by'], {
+    allowUnlabeled: false,
+  });
+  const fallbackDueDate = fallback.dueDate;
+  const dueDate = dueDateMatch.value || fallbackDueDate;
+  const amountMatch = extractAmount(normalizedText);
+  const fallbackAmount = fallback.amount;
+  const amount = amountMatch.value || fallbackAmount;
+  const subtotalMatch = extractSubtotal(normalizedText);
+  const fallbackSubtotal = fallback.subtotal;
+  const subtotal = subtotalMatch.value || fallbackSubtotal;
+  const taxMatch = extractTax(normalizedText);
+  const fallbackTax = fallback.tax;
+  const tax = taxMatch.value || fallbackTax;
+  const currency = extractCurrency(normalizedText, [amount, subtotal, tax]);
+  const vendor = extractVendor(lines, normalizedText) || fallback.vendor;
+  const customerName = extractCustomerName(lines, normalizedText) || fallback.customerName;
   const issues = [];
 
   if (!invoiceNumber) issues.push('Invoice number not found.');
@@ -55,10 +81,25 @@ function extractInvoiceDataFromText(text) {
   return {
     invoiceNumber,
     date,
+    dueDate,
     amount,
+    subtotal,
+    tax,
+    currency,
     vendor,
+    customerName,
     rawText: normalizedText,
     issues,
+    extractionMeta: {
+      invoiceNumberSource: invoiceMatch.value ? 'regex' : fallbackInvoice ? 'fallback' : 'missing',
+      dateSource: dateMatch.value ? 'regex' : fallbackDate ? 'fallback' : 'missing',
+      dueDateSource: dueDateMatch.value ? 'regex' : fallbackDueDate ? 'fallback' : 'missing',
+      amountSource: amountMatch.value ? 'regex' : fallbackAmount ? 'fallback' : 'missing',
+      subtotalSource: subtotalMatch.value ? 'regex' : fallbackSubtotal ? 'fallback' : 'missing',
+      taxSource: taxMatch.value ? 'regex' : fallbackTax ? 'fallback' : 'missing',
+      currencySource: currency ? 'derived' : 'missing',
+      processedText,
+    },
   };
 }
 
@@ -72,22 +113,34 @@ function extractInvoiceNumber(text) {
     /\b(?:document\s*(?:#|no\.?|number)?)\s*[:#-]?\s*([A-Z0-9][A-Z0-9-\/]*)/i,
   ];
 
-  return sanitizeInvoiceNumber(firstMatch(text, patterns));
+  return {
+    value: sanitizeInvoiceNumber(firstMatch(text, patterns)),
+    confidence: 92,
+  };
 }
 
-function extractDate(text) {
+function extractDate(text, labels = ['date', 'invoice date'], options = {}) {
+  const joinedLabels = labels.map((label) => label.replace(/\s+/g, '\\s*')).join('|');
   const patterns = [
-    /\b(?:date|invoice\s*date)\s*[:#-]?\s*([0-1]?\d\/[0-3]?\d\/(?:\d{2}|\d{4}))\b/i,
-    /\b(?:date|invoice\s*date)\s*[:#-]?\s*([0-3]?\d-[0-1]?\d-(?:\d{2}|\d{4}))\b/i,
-    /\b(?:date|invoice\s*date)\s*[:#-]?\s*((?:19|20)\d{2}-[0-1]?\d-[0-3]?\d)\b/i,
-    /\b(?:date|invoice\s*date)\s*[:#-]?\s*([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})\b/i,
-    /\b([0-3]?\d\/[0-1]?\d\/(?:\d{2}|\d{4}))\b/,
-    /\b((?:19|20)\d{2}-[0-1]?\d-[0-3]?\d)\b/,
-    /\b([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})\b/,
+    new RegExp(`\\b(?:${joinedLabels})\\s*[:#-]?\\s*([0-1]?\\d\\/[0-3]?\\d\\/(?:\\d{2}|\\d{4}))\\b`, 'i'),
+    new RegExp(`\\b(?:${joinedLabels})\\s*[:#-]?\\s*([0-3]?\\d-[0-1]?\\d-(?:\\d{2}|\\d{4}))\\b`, 'i'),
+    new RegExp(`\\b(?:${joinedLabels})\\s*[:#-]?\\s*((?:19|20)\\d{2}-[0-1]?\\d-[0-3]?\\d)\\b`, 'i'),
+    new RegExp(`\\b(?:${joinedLabels})\\s*[:#-]?\\s*([A-Za-z]{3,9}\\s+\\d{1,2},?\\s+\\d{4})\\b`, 'i'),
   ];
 
+  if (options.allowUnlabeled !== false) {
+    patterns.push(
+      /\b([0-3]?\d\/[0-1]?\d\/(?:\d{2}|\d{4}))\b/,
+      /\b((?:19|20)\d{2}-[0-1]?\d-[0-3]?\d)\b/,
+      /\b([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})\b/,
+    );
+  }
+
   const date = firstMatch(text, patterns);
-  return normalizeDate(date);
+  return {
+    value: normalizeDate(date),
+    confidence: date ? 90 : 0,
+  };
 }
 
 function extractAmount(text) {
@@ -99,16 +152,59 @@ function extractAmount(text) {
   for (const pattern of patterns) {
     const match = findLastMatch(text, pattern);
     if (match) {
-      return normalizeAmount(match);
+      return {
+        value: normalizeAmount(match),
+        confidence: 92,
+      };
     }
   }
 
-  return '';
+  return {
+    value: '',
+    confidence: 0,
+  };
 }
 
-function extractVendor(lines) {
+function extractSubtotal(text) {
+  return extractLabeledAmount(text, [
+    'subtotal',
+    'sub total',
+    'net amount',
+    'amount before tax',
+  ]);
+}
+
+function extractTax(text) {
+  return extractLabeledAmount(text, [
+    'tax',
+    'vat',
+    'gst',
+    'sales tax',
+  ]);
+}
+
+function extractLabeledAmount(text, labels) {
+  const joinedLabels = labels.map((label) => label.replace(/\s+/g, '\\s*')).join('|');
+  const pattern = new RegExp(`\\b(?:${joinedLabels})\\s*[:#-]?\\s*((?:${CURRENCY_TOKENS}\\s*)?\\d[\\d.,]*(?:[.,]\\d{1,2})?(?:\\s*${CURRENCY_TOKENS})?)(?=\\s|$)`, 'gi');
+  const match = findLastMatch(text, pattern);
+
+  return {
+    value: match ? normalizeAmount(match) : '',
+    confidence: match ? 88 : 0,
+  };
+}
+
+function extractVendor(lines, text = '') {
+  const labeledMatch = text.match(/\b(?:vendor|supplier|from)\s*[:#-]\s*([^\n]+)/i);
+  if (labeledMatch?.[1]) {
+    const labeledVendor = stripFieldLabel(labeledMatch[1]).trim();
+    if (labeledVendor) {
+      return labeledVendor;
+    }
+  }
+
   const blacklist =
-    /invoice|bill\s*to|ship\s*to|sold\s*to|total|amount|due|balance|date|page\s+\d+|subtotal|tax|vat|gst|qty|quantity|description|unit\s*price|payment|terms|remit|sample|do not pay|warning|generated by/i;
+    /invoice|^bill$|bill\s*to|ship\s*to|sold\s*to|total|amount|due|balance|date|page\s+\d+|subtotal|tax|vat|gst|qty|quantity|description|unit\s*price|payment|terms|remit|sample|do not pay|warning|generated by/i;
 
   for (const line of lines.slice(0, 12)) {
     const cleaned = stripFieldLabel(line);
@@ -124,12 +220,34 @@ function extractVendor(lines) {
   return '';
 }
 
+function extractCustomerName(lines, text = '') {
+  const labeledMatch = text.match(/\b(?:customer|client|bill\s*to)\s*[:#-]\s*([^\n]+)/i);
+  if (labeledMatch?.[1]) {
+    return labeledMatch[1].trim();
+  }
+
+  for (let index = 0; index < lines.length - 1; index += 1) {
+    if (/\b(?:customer|client|bill\s*to)\b/i.test(lines[index])) {
+      const nextLine = lines[index + 1]?.trim() || '';
+      if (nextLine && !/\b(?:date|invoice|amount|total)\b/i.test(nextLine)) {
+        return nextLine;
+      }
+    }
+  }
+
+  return '';
+}
+
 function extractUsingFallbackRules(lines) {
   const result = {
     invoiceNumber: '',
     date: '',
+    dueDate: '',
     amount: '',
+    subtotal: '',
+    tax: '',
     vendor: '',
+    customerName: '',
   };
 
   for (let index = 0; index < lines.length; index += 1) {
@@ -157,6 +275,15 @@ function extractUsingFallbackRules(lines) {
       result.date = normalizeDate(rawDate);
     }
 
+    if (!result.dueDate) {
+      const rawDueDate = extractLabeledValue(line, nextLine, [
+        'due date',
+        'payment due',
+        'pay by',
+      ]);
+      result.dueDate = normalizeDate(rawDueDate);
+    }
+
     if (!result.amount) {
       const rawAmount = extractLabeledValue(line, nextLine, [
         'total amount',
@@ -169,6 +296,33 @@ function extractUsingFallbackRules(lines) {
       ]);
       result.amount = normalizeAmount(rawAmount);
     }
+
+    if (!result.subtotal) {
+      const rawSubtotal = extractLabeledValue(line, nextLine, [
+        'subtotal',
+        'sub total',
+        'net amount',
+      ]);
+      result.subtotal = normalizeAmount(rawSubtotal);
+    }
+
+    if (!result.tax) {
+      const rawTax = extractLabeledValue(line, nextLine, [
+        'tax',
+        'vat',
+        'gst',
+        'sales tax',
+      ]);
+      result.tax = normalizeAmount(rawTax);
+    }
+
+    if (!result.customerName) {
+      result.customerName = extractLabeledValue(line, nextLine, [
+        'customer',
+        'client',
+        'bill to',
+      ]);
+    }
   }
 
   if (!result.vendor) {
@@ -177,6 +331,7 @@ function extractUsingFallbackRules(lines) {
 
   result.invoiceNumber = sanitizeInvoiceNumber(result.invoiceNumber);
   result.vendor = stripFieldLabel(result.vendor);
+  result.customerName = String(result.customerName || '').trim();
 
   return result;
 }
@@ -194,15 +349,6 @@ function extractLabeledValue(line, nextLine, labels) {
   }
 
   return '';
-}
-
-function normalizeText(text) {
-  return String(text)
-    .replace(/\r\n/g, '\n')
-    .replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/[–—]/g, '-')
-    .trim();
 }
 
 function normalizeDate(value) {
@@ -291,6 +437,18 @@ function normalizeAmount(value) {
   return `${currency}${normalizedValue}`.trim();
 }
 
+function extractCurrency(text, amountValues = []) {
+  for (const value of amountValues) {
+    const fromValue = String(value || '').match(/\b(?:USD|EUR|GBP|INR|CAD|AUD|JPY|CHF|AED|SGD)\b|[$€£₹]/i);
+    if (fromValue?.[0]) {
+      return fromValue[0].toUpperCase();
+    }
+  }
+
+  const match = text.match(/\b(?:USD|EUR|GBP|INR|CAD|AUD|JPY|CHF|AED|SGD)\b|[$€£₹]/i);
+  return match?.[0] ? match[0].toUpperCase() : '';
+}
+
 function sanitizeInvoiceNumber(value) {
   const cleaned = String(value || '').trim();
   if (!cleaned) return '';
@@ -348,4 +506,5 @@ module.exports = {
   normalizeAmount,
   normalizeDate,
   sanitizeInvoiceNumber,
+  extractCurrency,
 };

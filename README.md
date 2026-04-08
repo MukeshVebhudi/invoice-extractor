@@ -1,18 +1,19 @@
 # Invoice Extractor
 
-Deployable full-stack invoice extraction app for uploading PDFs, extracting key invoice fields, previewing the results, and downloading a CSV file.
+Deployable full-stack invoice extraction app for uploading text-based invoice documents, extracting key invoice fields, previewing the results, and downloading CSV or Excel files.
 
 ## Features
 
-- Upload one or multiple PDF invoices
-- Layered extraction pipeline: regex first, fallback parsing next
-- Optional AI fallback for missing fields
-- Optional OCR fallback for low-text or scanned PDFs
-- Extract invoice number, date, amount, and vendor
+- Upload one or multiple text-based invoice PDFs or TXT files
+- Paste raw invoice text directly into the app for quick testing
+- Strong text-first pipeline: preprocessing first, regex extraction next, fallback parsing after that
+- Extract invoice number, invoice date, due date, total amount, subtotal, tax, currency, vendor, and customer name
 - Normalize dates and amounts into consistent output
+- Detect weak or unreadable text and flag unsupported files clearly
 - Preview extracted rows in the browser
 - Show confidence and review state per row
 - Download CSV with stable headers
+- Download Excel with the same reviewed values
 - Run frontend and backend together as one Express service
 
 ## Stack
@@ -22,6 +23,7 @@ Deployable full-stack invoice extraction app for uploading PDFs, extracting key 
 - Multer with memory storage
 - pdf-parse
 - json2csv
+- exceljs
 - Vanilla HTML, CSS, and JavaScript
 
 ## Project Structure
@@ -39,10 +41,10 @@ server/
   routes/
     uploadRoutes.js
   services/
-    aiExtractorService.js
     extractionPipeline.js
+    exportService.js
     invoiceExtractor.js
-    ocrService.js
+    textProcessingService.js
   tests/
     invoiceExtractor.test.js
 ```
@@ -82,7 +84,7 @@ Returns:
 
 ### `POST /api/upload`
 
-Upload PDFs in the `invoices` form field.
+Upload text-based PDFs or TXT files in the `invoices` form field.
 
 Example response:
 
@@ -97,44 +99,53 @@ Example response:
   "data": [
     {
       "fileName": "invoice-a.pdf",
+      "inputType": "pdf",
       "invoiceNumber": "INV-1001",
       "date": "2026-04-06",
+      "dueDate": "2026-04-30",
       "amount": "$1234.56",
+      "subtotal": "$1100.00",
+      "tax": "$134.56",
+      "currency": "$",
       "vendor": "Acme Inc.",
+      "customerName": "Northwind LLC",
       "confidence": 84,
-      "extractionSource": "regex+ai",
+      "fieldConfidence": {
+        "invoiceNumberConfidence": 92,
+        "dateConfidence": 92,
+        "amountConfidence": 92,
+        "vendorConfidence": 82
+      },
+      "textReadable": true,
+      "extractionSource": "text",
       "status": "ok",
       "issues": []
     }
   ],
-  "csv": "\"file_name\",\"invoice_number\",\"date\",\"amount\",\"vendor\",\"confidence\",\"extraction_source\",\"status\"\n..."
+  "csv": "\"file_name\",\"input_type\",\"invoice_number\",\"date\",\"due_date\",\"amount\",\"subtotal\",\"tax\",\"currency\",\"vendor\",\"customer_name\",\"confidence\",\"needs_review\",\"text_readable\",\"extraction_source\",\"status\",\"issues\"\n..."
 }
 ```
 
 Notes:
 
 - `includeRawText=true` can be added to `POST /api/upload` during debugging
-- non-PDF files are rejected
+- non-PDF/TXT files are rejected
 - max files per request: `25`
 - max file size: `15 MB` each
 - rows can return `needsReview: true` when confidence is low
 - `status` can be `ok`, `needs_review`, or `error`
+- weak or empty PDF text is flagged as unsupported for the current phase instead of being guessed
 
-## Optional Environment Variables
+### `POST /api/parse-text`
 
-These are optional. The app still works without them.
+Send raw invoice text directly:
 
-```text
-OPENAI_API_KEY=...
-OPENAI_MODEL=gpt-4o-mini
-OCR_SPACE_API_KEY=...
+```json
+{
+  "fileName": "pasted-text.txt",
+  "text": "Invoice Number: INV-1001\nDate: 04/06/2026\nTotal: $1234.56"
+}
 ```
-
-Behavior:
-
-- regex and fallback parsing always run first
-- OCR is only attempted when PDF text is very weak and `OCR_SPACE_API_KEY` is set
-- AI is only attempted when important fields are still missing and `OPENAI_API_KEY` is set
 
 ## Test
 
@@ -177,6 +188,14 @@ After deployment:
 - No authentication
 - No database
 - No background jobs
-- Optional OCR / AI only as fallback, not primary extraction
+- Text-based PDF invoices only
+- TXT files and pasted text are also supported
+- Scanned or image-only invoices are not part of the active scope yet
 
 The app stays intentionally simple, but is structured to be clean enough for deployment and iteration.
+
+## Current Limitations
+
+- This phase is focused on text-readable documents only
+- If a PDF has little or no readable text, the app will flag it as unsupported
+- Scanned or image-only invoices are intentionally rejected for now so the app stays accurate instead of guessing

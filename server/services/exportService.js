@@ -2,13 +2,22 @@ const ExcelJS = require('exceljs');
 
 const EXPORT_FIELDS = [
   ['file_name', 'fileName'],
+  ['input_type', 'inputType'],
   ['invoice_number', 'invoiceNumber'],
   ['date', 'date'],
+  ['due_date', 'dueDate'],
   ['amount', 'amount'],
+  ['subtotal', 'subtotal'],
+  ['tax', 'tax'],
+  ['currency', 'currency'],
   ['vendor', 'vendor'],
+  ['customer_name', 'customerName'],
   ['confidence', 'confidence'],
+  ['needs_review', 'needsReview'],
+  ['text_readable', 'textReadable'],
   ['extraction_source', 'extractionSource'],
   ['status', 'status'],
+  ['issues', 'issues'],
 ];
 
 async function createWorkbookBuffer(rows) {

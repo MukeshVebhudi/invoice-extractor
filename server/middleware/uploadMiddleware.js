@@ -3,12 +3,15 @@ const multer = require('multer');
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (_req, file, cb) => {
-    const isPdf =
+    const normalizedName = file.originalname.toLowerCase();
+    const isSupportedTextDocument =
       file.mimetype === 'application/pdf' ||
-      file.originalname.toLowerCase().endsWith('.pdf');
+      file.mimetype === 'text/plain' ||
+      normalizedName.endsWith('.pdf') ||
+      normalizedName.endsWith('.txt');
 
-    if (!isPdf) {
-      const error = new Error('Only PDF files are allowed.');
+    if (!isSupportedTextDocument) {
+      const error = new Error('Only text-based PDF and TXT files are allowed.');
       error.statusCode = 400;
       return cb(error);
     }

@@ -10,39 +10,52 @@
   <main class="page">
     <section class="hero">
       <p class="eyebrow">Invoice Extractor</p>
-      <h1>Upload invoice PDFs and download a clean CSV.</h1>
+      <h1>Turn your invoices into a simple spreadsheet.</h1>
       <p class="lede">
-        Add one or more invoice files, review the extracted rows, and export the result in an Excel-friendly format.
+        Upload text-based invoice files, check the details, and download the results.
       </p>
     </section>
 
     <section class="panel">
       <div class="panel-top">
         <div>
-          <h2>Upload Invoice PDFs</h2>
+          <h2>Add Your Invoices</h2>
         </div>
-        <p class="section-copy">Drag and drop files or choose them from your computer.</p>
+        <p class="section-copy">Use invoice PDFs or simple text files.</p>
       </div>
 
       <form id="uploadForm" class="upload-form">
-        <input id="fileInput" name="invoices" type="file" accept=".pdf,application/pdf" multiple hidden>
+        <input id="fileInput" name="invoices" type="file" accept=".pdf,.txt,application/pdf,text/plain" multiple hidden>
 
         <label for="fileInput" id="dropZone" class="drop-zone">
-          <span class="drop-kicker">Drag files into the tray</span>
-          <strong>Select one or more invoice PDFs</strong>
-          <span class="drop-note">or click here to browse from your machine</span>
+          <span class="drop-kicker">Drop your files here</span>
+          <strong>Choose one or more invoice files</strong>
+          <span class="drop-note">or click to pick them from your computer</span>
         </label>
 
         <div id="selectedFiles" class="selected-files"></div>
 
         <div class="actions">
-          <button id="submitButton" type="submit" class="primary" disabled>Extract Invoice Data</button>
-          <button id="sampleButton" type="button" class="secondary">Try with Sample Invoices</button>
+          <button id="submitButton" type="submit" class="primary" disabled>Read My Files</button>
           <button id="clearButton" type="button" class="secondary" disabled>Clear</button>
-          <button id="downloadButton" type="button" class="secondary" disabled>Download CSV</button>
-          <button id="downloadExcelButton" type="button" class="secondary" disabled>Download Excel</button>
         </div>
       </form>
+
+      <details class="text-panel">
+        <summary class="text-panel-summary">No file? Paste the text instead</summary>
+        <div class="text-panel-copy">
+          <p>If you copied text from an invoice, paste it here and we will read it for you.</p>
+        </div>
+        <div class="text-panel-fields">
+          <label class="field-label" for="textInputName">Optional file name</label>
+          <input id="textInputName" class="text-name-input" type="text" value="invoice-text.txt" aria-label="Optional file name for pasted text">
+          <label class="field-label" for="rawTextInput">Invoice text</label>
+          <textarea id="rawTextInput" class="raw-text-input" placeholder="Paste the invoice text here..."></textarea>
+          <div class="actions">
+            <button id="parseTextButton" type="button" class="secondary">Read This Text</button>
+          </div>
+        </div>
+      </details>
 
       <div id="loadingIndicator" class="loading hidden" aria-live="polite">
         <span class="loading-dot"></span>
@@ -59,20 +72,20 @@
         <div class="results-grid">
           <div class="results-header">
             <div>
-              <h3>Extracted Results</h3>
-              <p>Review the values before downloading the CSV.</p>
+              <h3>Check Your Results</h3>
+              <p>Check any row that does not look right before you download.</p>
             </div>
             <div class="results-toolbar">
               <div class="filter-group" role="group" aria-label="Filter rows">
                 <button type="button" class="filter-button is-active" data-filter="all">All</button>
-                <button type="button" class="filter-button" data-filter="needs_review">Needs Review</button>
-                <button type="button" class="filter-button" data-filter="high_confidence">High Confidence</button>
+                <button type="button" class="filter-button" data-filter="needs_review">Check This</button>
+                <button type="button" class="filter-button" data-filter="high_confidence">Looks Good</button>
               </div>
               <label class="sort-control">
                 <span>Sort</span>
                 <select id="sortSelect">
                   <option value="original">Original order</option>
-                  <option value="confidence_desc">Confidence</option>
+                  <option value="confidence_desc">Match quality</option>
                   <option value="amount_desc">Amount</option>
                   <option value="date_desc">Date</option>
                 </select>
@@ -80,26 +93,34 @@
             </div>
           </div>
 
+          <div class="results-actions">
+            <button id="downloadButton" type="button" class="secondary" disabled>Download CSV</button>
+            <button id="downloadExcelButton" type="button" class="secondary" disabled>Download Excel</button>
+          </div>
+
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>File</th>
+                  <th>Type</th>
+                  <th>Ready To Read</th>
                   <th>Invoice Number</th>
                   <th>Date</th>
+                  <th>Due Date</th>
                   <th>Amount</th>
+                  <th>Subtotal</th>
+                  <th>Tax</th>
+                  <th>Currency</th>
                   <th>Vendor</th>
-                  <th>Confidence</th>
-                  <th>Issues</th>
-                  <th>Review</th>
+                  <th>Customer</th>
+                  <th>Match Quality</th>
+                  <th>What To Check</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody id="resultsBody"></tbody>
             </table>
-          </div>
-
-          <div class="json-preview hidden">
-            <pre id="jsonOutput"></pre>
           </div>
         </div>
       </section>
